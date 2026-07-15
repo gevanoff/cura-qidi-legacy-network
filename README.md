@@ -1,7 +1,11 @@
-# QIDI Legacy Cura
+# Cura QIDI Legacy Network
 
 A clean, testable implementation of the legacy QIDI UDP network protocol, plus a Cura 5
 output-device plugin targeting printers such as the **QIDI i-Fast**.
+
+## Repository name
+
+`cura-qidi-legacy-network`
 
 ## Current milestone
 
@@ -21,7 +25,7 @@ excluded until plain `.gcode` transfer is verified against the i-Fast.
 
 ```bash
 python -m venv .venv
-. .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+. .venv/bin/activate          # Windows PowerShell: .venv\\Scripts\\Activate.ps1
 pip install -e '.[dev]'
 pytest
 ```
@@ -65,3 +69,13 @@ qidi-legacy upload 192.168.1.123 calibration_cube.gcode --start
 Protocol behavior was informed by publicly available legacy QIDI integrations, including
 `alkaes/QidiPrint` and `philltran/cura-qidi-printer-integration`. This project is a new,
 separated implementation designed for current Cura 5 architecture and testability.
+
+## Create the public repository
+
+Create an empty public GitHub repository named `cura-qidi-legacy-network` without adding a
+README, license, or `.gitignore`. Then add it as the remote and push:
+
+```bash
+git remote add origin git@github.com:gevanoff/cura-qidi-legacy-network.git
+git push -u origin main
+```

@@ -1,9 +1,9 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "qidi-legacy-cura"
+name = "cura-qidi-legacy-network"
 version = "0.1.0"
 description = "Legacy QIDI UDP protocol client and Cura 5 network plugin for printers such as the QIDI i-Fast"
 readme = "README.md"
@@ -18,12 +18,16 @@ dev = ["pytest>=8", "ruff>=0.6"]
 [project.scripts]
 qidi-legacy = "qidi_legacy.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/qidi_legacy"]
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 100

@@ -11,10 +11,16 @@ from .parsing import parse_firmware, parse_handshake, parse_status
 from .transport import UdpTransport
 
 ProgressCallback = Callable[[int, int], None]
+MAX_RESEND_REQUESTS = 16
+_FORBIDDEN_REMOTE_FILENAME_CHARS = set('"\'´`<>()[]?*\\,;:&%#$!/')
 
 
 class QidiLegacyClient:
-    """Client for the legacy QIDI UDP protocol used by printers such as the i-Fast."""
+    """Client for the legacy QIDI UDP protocol used by printers such as the i-Fast.
+
+    The client is synchronous by design. Call it from one thread at a time. This keeps
+    packet ordering deterministic and makes it suitable for wrapping in a Cura worker.
+    """
 
     def __init__(
         self,
@@ -24,6 +30,8 @@ class QidiLegacyClient:
         timeout: float = 0.5,
         retries: int = 3,
     ) -> None:
+        if retries < 1:
+            raise ValueError("retries must be at least 1")
         self.host = host
         self.port = port
         self.retries = retries
@@ -60,15 +68,37 @@ class QidiLegacyClient:
         timeout: float | None = None,
         retries: int | None = None,
     ) -> str:
+        if not command:
+            raise ValueError("command must not be empty")
         response = self._request_bytes(
             command.encode(self.encoding, errors="ignore"),
             timeout=timeout,
             retries=retries,
         )
         decoded = response.decode(self.encoding, errors="replace").strip()
-        if "Error:Wifi reboot" in decoded or "Error:IP is connected" in decoded:
+        if decoded.lower().startswith("error"):
             raise QidiProtocolError(decoded)
         return decoded
+
+    @staticmethod
+    def _require_ok(response: str, operation: str) -> None:
+        if not response.lower().startswith("ok"):
+            raise QidiProtocolError(f"unexpected response while {operation}: {response!r}")
+
+    @staticmethod
+    def _validate_remote_filename(filename: str) -> str:
+        filename = filename.strip()
+        if not filename or filename in {".", ".."}:
+            raise QidiUploadError("remote filename must not be empty")
+        if len(filename) > 120:
+            raise QidiUploadError("remote filename is longer than 120 characters")
+        if any(character in _FORBIDDEN_REMOTE_FILENAME_CHARS for character in filename):
+            raise QidiUploadError("remote filename contains a character rejected by QIDI firmware")
+        if any(ord(character) < 32 for character in filename):
+            raise QidiUploadError("remote filename contains a control character")
+        if not filename.lower().endswith(".gcode"):
+            filename += ".gcode"
+        return filename
 
     def connect(self) -> HandshakeInfo:
         response = self.command("M4001")
@@ -89,16 +119,25 @@ class QidiLegacyClient:
         return match.group(1) if match else None
 
     def pause(self) -> str:
-        return self.command("M25")
+        response = self.command("M25")
+        self._require_ok(response, "pausing print")
+        return response
 
     def resume(self) -> str:
-        return self.command("M24")
+        response = self.command("M24")
+        self._require_ok(response, "resuming print")
+        return response
 
     def cancel(self) -> str:
-        return self.command("M33")
+        response = self.command("M33")
+        self._require_ok(response, "canceling print")
+        return response
 
     def start_print(self, remote_filename: str) -> str:
-        return self.command(f'M6030 ":{remote_filename}" I1', timeout=2.0)
+        remote_filename = self._validate_remote_filename(remote_filename)
+        response = self.command(f'M6030 ":{remote_filename}" I1', timeout=2.0)
+        self._require_ok(response, "starting print")
+        return response
 
     def upload_file(
         self,
@@ -114,38 +153,54 @@ class QidiLegacyClient:
         if total <= 0:
             raise QidiUploadError("file is empty")
 
-        remote = remote_filename or path.name
-        if not remote.lower().endswith(".gcode"):
-            remote += ".gcode"
-
+        remote = self._validate_remote_filename(remote_filename or path.name)
         begin = self.command(f"M28 {remote}", timeout=2.0)
-        if "error" in begin.lower():
-            raise QidiUploadError(f"printer rejected file creation: {begin}")
+        self._require_ok(begin, "creating remote file")
 
-        offset = 0
-        with path.open("rb") as handle:
-            while offset < total:
-                handle.seek(offset)
-                payload = handle.read(BLOCK_PAYLOAD_SIZE)
-                response = self._request_bytes(frame_file_block(payload, offset), timeout=2.0)
-                text = response.decode(self.encoding, errors="replace").strip()
-                if "ok" in text.lower():
-                    offset += len(payload)
-                    if progress:
-                        progress(offset, total)
-                    continue
+        upload_complete = False
+        try:
+            offset = 0
+            resend_requests = 0
+            with path.open("rb") as handle:
+                while offset < total:
+                    handle.seek(offset)
+                    payload = handle.read(BLOCK_PAYLOAD_SIZE)
+                    response = self._request_bytes(frame_file_block(payload, offset), timeout=2.0)
+                    text = response.decode(self.encoding, errors="replace").strip()
+                    if text.lower().startswith("ok"):
+                        offset += len(payload)
+                        if progress:
+                            progress(offset, total)
+                        continue
 
-                resend = re.search(r"resend\s+(\d+)", text, flags=re.IGNORECASE)
-                if resend:
-                    requested = int(resend.group(1))
-                    if not 0 <= requested < total:
-                        raise QidiUploadError(f"invalid resend offset from printer: {requested}")
-                    offset = requested
-                    continue
+                    resend = re.search(r"resend\s+(\d+)", text, flags=re.IGNORECASE)
+                    if resend:
+                        resend_requests += 1
+                        if resend_requests > MAX_RESEND_REQUESTS:
+                            raise QidiUploadError(
+                                f"printer exceeded {MAX_RESEND_REQUESTS} resend requests"
+                            )
+                        requested = int(resend.group(1))
+                        if not 0 <= requested < total:
+                            raise QidiUploadError(
+                                f"invalid resend offset from printer: {requested}"
+                            )
+                        offset = requested
+                        continue
 
-                raise QidiUploadError(f"printer rejected upload block at {offset}: {text}")
+                    raise QidiUploadError(
+                        f"printer rejected upload block at {offset}: {text or '<empty>'}"
+                    )
 
-        end = self.command(f"M29 {remote}", timeout=2.0)
-        if "error" in end.lower():
-            raise QidiUploadError(f"printer rejected file close: {end}")
-        return remote
+            end = self.command(f"M29 {remote}", timeout=2.0)
+            self._require_ok(end, "closing remote file")
+            upload_complete = True
+            return remote
+        finally:
+            if not upload_complete:
+                # A failed transfer can leave the printer's remote file handle open.
+                # Closing it is best-effort and must not mask the original failure.
+                try:
+                    self.command(f"M29 {remote}", timeout=0.5, retries=1)
+                except Exception:
+                    pass
