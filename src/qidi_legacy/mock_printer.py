@@ -16,6 +16,7 @@ class MockPrinterState:
     resend_sent: bool = False
     resend_forever_at: int | None = None
     close_count: int = 0
+    ifast_v340_save_response: bool = False
 
 
 class MockQidiPrinter:
@@ -107,7 +108,11 @@ class MockQidiPrinter:
             self._reply("ok", address)
         elif command.startswith("M29 "):
             self.state.close_count += 1
-            self._reply("ok", address)
+            if self.state.ifast_v340_save_response:
+                filename = command[4:]
+                self._reply(f"Done saving file!\r\n// {filename}", address)
+            else:
+                self._reply("ok", address)
         elif command.startswith("M6030 "):
             self.state.started_filename = command
             self._reply("ok", address)

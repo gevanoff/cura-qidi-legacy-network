@@ -22,3 +22,18 @@ def test_connect_status_upload_and_start(tmp_path: Path) -> None:
             assert printer.state.resend_sent is True
             assert client.start_print(remote) == "ok"
             assert printer.state.started_filename == 'M6030 ":cube.gcode" I1'
+
+
+def test_upload_accepts_ifast_v340_save_response(tmp_path: Path) -> None:
+    source = tmp_path / "network_test.gcode"
+    source.write_bytes(b"; upload-only test\n" * 200)
+
+    with MockQidiPrinter() as printer:
+        printer.state.ifast_v340_save_response = True
+        with QidiLegacyClient("127.0.0.1", port=printer.port, timeout=0.2) as client:
+            client.connect()
+            remote = client.upload_file(source)
+
+    assert remote == "network_test.gcode"
+    assert bytes(printer.state.uploaded) == source.read_bytes()
+    assert printer.state.close_count == 1
