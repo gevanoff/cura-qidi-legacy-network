@@ -25,7 +25,7 @@ excluded until plain `.gcode` transfer is verified against the i-Fast.
 
 ```bash
 python -m venv .venv
-. .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+. .venv/bin/activate          # Windows PowerShell: .venv\\Scripts\\Activate.ps1
 pip install -e '.[dev]'
 pytest
 ```
