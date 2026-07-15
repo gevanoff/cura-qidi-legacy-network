@@ -1,0 +1,7 @@
+{
+  "name": "QIDI Legacy Network",
+  "author": "Gabe Evanoff",
+  "description": "Network upload and monitoring for legacy QIDI firmware, initially targeting the QIDI i-Fast.",
+  "version": "0.1.0-dev",
+  "api": 8
+}
