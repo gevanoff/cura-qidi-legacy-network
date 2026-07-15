@@ -14,6 +14,8 @@ class MockPrinterState:
     started_filename: str | None = None
     resend_once_at: int | None = None
     resend_sent: bool = False
+    resend_forever_at: int | None = None
+    close_count: int = 0
 
 
 class MockQidiPrinter:
@@ -67,6 +69,10 @@ class MockQidiPrinter:
             self._reply(f"Error:{exc}", address)
             return
 
+        if self.state.resend_forever_at is not None and offset >= self.state.resend_forever_at:
+            self._reply(f"resend {self.state.resend_forever_at}", address)
+            return
+
         if (
             self.state.resend_once_at is not None
             and offset >= self.state.resend_once_at
@@ -100,6 +106,7 @@ class MockQidiPrinter:
             self.state.uploaded.clear()
             self._reply("ok", address)
         elif command.startswith("M29 "):
+            self.state.close_count += 1
             self._reply("ok", address)
         elif command.startswith("M6030 "):
             self.state.started_filename = command

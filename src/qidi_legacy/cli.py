@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from dataclasses import asdict
 
 from .client import QidiLegacyClient
 from .discovery import discover
+from .exceptions import QidiError
 
 
 def _client(args: argparse.Namespace) -> QidiLegacyClient:
@@ -37,28 +39,36 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
+def run(args: argparse.Namespace) -> dict[str, object] | list[dict[str, object]]:
     if args.action == "discover":
-        print(json.dumps([asdict(item) for item in discover(port=args.port, duration=args.duration)], indent=2))
-        return 0
+        return [asdict(item) for item in discover(port=args.port, duration=args.duration)]
 
     with _client(args) as client:
         handshake = client.connect()
         if args.action == "probe":
-            result = {"handshake": asdict(handshake), "firmware": client.firmware_version()}
-        elif args.action == "status":
-            result = asdict(client.status())
-        else:
-            def progress(done: int, total: int) -> None:
-                print(f"uploaded {done}/{total} bytes", flush=True)
+            return {"handshake": asdict(handshake), "firmware": client.firmware_version()}
+        if args.action == "status":
+            return asdict(client.status())
 
-            remote = client.upload_file(args.file, remote_filename=args.remote_name, progress=progress)
-            result = {"uploaded": remote, "started": False}
-            if args.start:
-                result["start_response"] = client.start_print(remote)
-                result["started"] = True
-        print(json.dumps(result, indent=2))
+        def progress(done: int, total: int) -> None:
+            print(f"uploaded {done}/{total} bytes", file=sys.stderr, flush=True)
+
+        remote = client.upload_file(args.file, remote_filename=args.remote_name, progress=progress)
+        result: dict[str, object] = {"uploaded": remote, "started": False}
+        if args.start:
+            result["start_response"] = client.start_print(remote)
+            result["started"] = True
+        return result
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        result = run(args)
+    except (QidiError, OSError, ValueError) as exc:
+        print(json.dumps({"error": str(exc), "type": type(exc).__name__}), file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
     return 0
 
 
