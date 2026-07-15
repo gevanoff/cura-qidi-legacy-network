@@ -21,3 +21,22 @@ def test_parse_status() -> None:
 
 def test_parse_firmware() -> None:
     assert parse_firmware("ok 4.3.13") == "4.3.13"
+
+
+def test_parse_ifast_v340_hardware_responses() -> None:
+    handshake = parse_handshake(
+        "ok X:0.010611 Y:0.010611 Z:0.002500 E:0.007300 "
+        "T:0/372/250/322/2 U:'UTF-8' B:1"
+    )
+    assert handshake.machine_type == "0"
+    assert (handshake.x_max, handshake.y_max, handshake.z_max) == (372.0, 250.0, 322.0)
+    assert handshake.encoding == "UTF-8"
+    assert parse_firmware("V3.40") == "V3.40"
+
+    status = parse_status(
+        "ok B:25/0 E1:30/0 E2:30/0 X:0.000 Y:0.000 Z:312.000 "
+        "F:0/0 D:0/0/1 I:26/0 L:1 T:0"
+    )
+    assert status.is_idle is True
+    assert status.extruder_current == (30.0, 30.0)
+    assert status.extra == {"I": "26/0", "L": "1"}

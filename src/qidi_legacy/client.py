@@ -86,6 +86,29 @@ class QidiLegacyClient:
             raise QidiProtocolError(f"unexpected response while {operation}: {response!r}")
 
     @staticmethod
+    def _require_file_saved(response: str, remote_filename: str) -> None:
+        """Accept the known successful M29 responses without hiding mismatches.
+
+        Some legacy firmware replies with ``ok``. QIDI i-Fast firmware V3.40 instead
+        returns two lines: ``Done saving file!`` and ``// <filename>``.
+        """
+        if response.lower().startswith("ok"):
+            return
+
+        lines = [line.strip() for line in response.splitlines() if line.strip()]
+        if (
+            len(lines) == 2
+            and lines[0].casefold() == "done saving file!"
+            and lines[1].startswith("//")
+            and lines[1][2:].strip() == remote_filename
+        ):
+            return
+
+        raise QidiProtocolError(
+            f"unexpected response while closing remote file: {response!r}"
+        )
+
+    @staticmethod
     def _validate_remote_filename(filename: str) -> str:
         filename = filename.strip()
         if not filename or filename in {".", ".."}:
@@ -193,7 +216,7 @@ class QidiLegacyClient:
                     )
 
             end = self.command(f"M29 {remote}", timeout=2.0)
-            self._require_ok(end, "closing remote file")
+            self._require_file_saved(end, remote)
             upload_complete = True
             return remote
         finally:

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from qidi_legacy.client import MAX_RESEND_REQUESTS, QidiLegacyClient
-from qidi_legacy.exceptions import QidiUploadError
+from qidi_legacy.exceptions import QidiProtocolError, QidiUploadError
 from qidi_legacy.mock_printer import MockQidiPrinter
 
 
@@ -27,3 +27,11 @@ def test_upload_aborts_after_bounded_resends_and_closes_file(tmp_path: Path) -> 
             with pytest.raises(QidiUploadError, match=str(MAX_RESEND_REQUESTS)):
                 client.upload_file(source)
         assert printer.state.close_count == 1
+
+
+def test_ifast_save_response_rejects_wrong_filename() -> None:
+    with pytest.raises(QidiProtocolError, match="closing remote file"):
+        QidiLegacyClient._require_file_saved(
+            "Done saving file!\r\n// other.gcode",
+            "expected.gcode",
+        )
