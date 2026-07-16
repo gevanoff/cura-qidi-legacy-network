@@ -6,6 +6,12 @@ def getMetaData():
 
 
 def register(app):
+    from .extension import QidiLegacyNetworkExtension
     from .plugin import QidiLegacyNetworkPlugin
 
-    return {"output_device": QidiLegacyNetworkPlugin(app)}
+    output_plugin = QidiLegacyNetworkPlugin(app)
+    extension = QidiLegacyNetworkExtension(output_plugin)
+    return {
+        "output_device": output_plugin,
+        "extension": extension,
+    }
