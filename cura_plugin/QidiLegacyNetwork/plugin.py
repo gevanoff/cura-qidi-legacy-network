@@ -1,21 +1,51 @@
-"""Initial Cura 5 output-device plugin shell.
+from __future__ import annotations
 
-This module avoids importing the standalone protocol package until Cura loads the plugin,
-which keeps the protocol testable without a Cura installation.
-"""
+from pathlib import Path
 
-from UM.OutputDevice.OutputDevicePlugin import OutputDevicePlugin
 from UM.Logger import Logger
+from UM.OutputDevice.OutputDevicePlugin import OutputDevicePlugin
+from UM.PluginRegistry import PluginRegistry
+
+from .config import load_config
+from .output_device import QidiLegacyOutputDevice
 
 
 class QidiLegacyNetworkPlugin(OutputDevicePlugin):
-    def __init__(self, app):
+    def __init__(self, app) -> None:
         super().__init__()
         self._app = app
-        Logger.log("i", "QIDI Legacy Network plugin loaded")
+        self._device_ids: list[str] = []
 
-    def start(self):
-        Logger.log("i", "QIDI Legacy Network protocol layer is ready; output device pending hardware probe")
+    def start(self) -> None:
+        plugin_path = PluginRegistry.getInstance().getPluginPath("QidiLegacyNetwork")
+        if not plugin_path:
+            Logger.log("e", "Cannot locate the QIDI Legacy Network plugin directory")
+            return
 
-    def stop(self):
-        pass
+        try:
+            config = load_config(Path(plugin_path) / "config.json")
+        except Exception as exc:
+            Logger.log("e", "Cannot load QIDI Legacy Network configuration: %s", exc)
+            return
+
+        manager = self.getOutputDeviceManager()
+        for start_after_upload in (False, True):
+            device = QidiLegacyOutputDevice(
+                config,
+                start_after_upload=start_after_upload,
+            )
+            manager.addOutputDevice(device)
+            self._device_ids.append(device.getId())
+
+        Logger.log(
+            "i",
+            "QIDI Legacy Network output devices registered for %s:%s",
+            config.host,
+            config.port,
+        )
+
+    def stop(self) -> None:
+        manager = self.getOutputDeviceManager()
+        for device_id in self._device_ids:
+            manager.removeOutputDevice(device_id)
+        self._device_ids.clear()
