@@ -68,7 +68,12 @@ def device_factory(start_after_upload):
 def test_registration_waits_for_active_machine_stack() -> None:
     manager = FakeManager()
     logs = []
-    registrar = OutputDeviceRegistrar(FakeApp(), manager, device_factory, logs.append)
+    registrar = OutputDeviceRegistrar(
+        FakeApp(),
+        manager,
+        device_factory,
+        lambda *args: logs.append(args),
+    )
 
     assert registrar.sync() is False
     assert manager.devices == {}
