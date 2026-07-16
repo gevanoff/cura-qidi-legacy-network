@@ -11,6 +11,8 @@ def test_stage_plugin_vendors_protocol_and_configuration(tmp_path: Path) -> None
 
     assert (plugin_dir / "plugin.json").is_file()
     assert (plugin_dir / "output_device.py").is_file()
+    assert (plugin_dir / "registration.py").is_file()
+    assert (plugin_dir / "extension.py").is_file()
     assert (plugin_dir / "qidi_legacy" / "client.py").is_file()
     assert json.loads((plugin_dir / "config.json").read_text()) == {
         "host": "10.10.22.122",
@@ -35,6 +37,8 @@ def test_build_zip_contains_single_plugin_root(tmp_path: Path) -> None:
     with zipfile.ZipFile(destination) as archive:
         names = set(archive.namelist())
     assert "QidiLegacyNetwork/plugin.json" in names
+    assert "QidiLegacyNetwork/registration.py" in names
+    assert "QidiLegacyNetwork/extension.py" in names
     assert "QidiLegacyNetwork/qidi_legacy/client.py" in names
     assert "QidiLegacyNetwork/config.json" in names
 
