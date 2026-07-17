@@ -2,6 +2,6 @@
   "name": "QIDI Legacy Network",
   "author": "Gabe Evanoff",
   "description": "Upload G-code to legacy QIDI network printers, including the QIDI i-Fast.",
-  "version": "0.2.1-dev",
+  "version": "0.2.2-dev",
   "api": 8
 }
