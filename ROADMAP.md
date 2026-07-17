@@ -8,16 +8,16 @@
 - [x] bounded resend handling
 - [x] mock printer and integration tests
 - [x] conservative command-line client
-- [ ] physical i-Fast handshake/status verification
-- [ ] physical plain-G-code upload verification
+- [x] physical i-Fast handshake/status verification
+- [x] physical plain-G-code upload and print verification
 
 ## Milestone 2 — Cura 5.13 manual-IP integration
 
 - [ ] manual network configuration UI
-- [ ] serialized background protocol worker
-- [ ] Cura GCodeWriter to temporary plain `.gcode`
-- [ ] upload progress and actionable errors
-- [ ] optional explicit “upload and start” action
+- [x] serialized background protocol worker
+- [x] Cura GCodeWriter to temporary plain `.gcode`
+- [x] upload progress and actionable errors
+- [x] optional explicit “upload and start” action
 - [ ] Windows Cura 5.13 installation test
 
 ## Milestone 3 — i-Fast slicing definitions

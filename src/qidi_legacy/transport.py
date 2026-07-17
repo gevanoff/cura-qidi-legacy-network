@@ -28,7 +28,28 @@ class UdpTransport:
             raise ValueError("timeout must be positive")
         self._remote_ip = socket.gethostbyname(self.host)
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.settimeout(self.timeout)
+        try:
+            # A connected UDP socket still sends datagrams, but it makes the OS select
+            # one concrete local interface and ephemeral port up front. This avoids the
+            # unbound-receive failure seen on Winsock and gives actionable endpoint data
+            # when a Windows firewall or route drops the printer's reply.
+            self._socket.connect((self._remote_ip, self.port))
+            self._socket.settimeout(self.timeout)
+        except Exception:
+            self._socket.close()
+            raise
+
+    @property
+    def local_endpoint(self) -> tuple[str, int]:
+        host, port = self._socket.getsockname()
+        return str(host), int(port)
+
+    def _endpoint_context(self) -> str:
+        local_host, local_port = self.local_endpoint
+        return (
+            f"local {local_host}:{local_port} to remote "
+            f"{self._remote_ip}:{self.port}"
+        )
 
     def close(self) -> None:
         self._socket.close()
@@ -45,8 +66,12 @@ class UdpTransport:
         try:
             while True:
                 try:
-                    self._socket.recvfrom(self.receive_size)
-                except BlockingIOError:
+                    self._socket.recv(self.receive_size)
+                except (BlockingIOError, InterruptedError):
+                    break
+                except OSError:
+                    # Connected UDP sockets can surface an asynchronous ICMP error here.
+                    # A subsequent request gets bounded retries and reports useful context.
                     break
         finally:
             self._socket.settimeout(previous_timeout)
@@ -64,24 +89,32 @@ class UdpTransport:
         self._socket.settimeout(self.timeout if timeout is None else timeout)
         try:
             for attempt in range(1, retries + 1):
-                self._socket.sendto(payload, (self._remote_ip, self.port))
-                while True:
-                    try:
-                        response, source = self._socket.recvfrom(self.receive_size)
-                    except socket.timeout:
-                        if attempt == retries:
-                            raise QidiConnectionError(
-                                f"no reply from {self.host}:{self.port} after {retries} attempts"
-                            )
-                        break
-                    if source[0] != self._remote_ip:
-                        # Ignore unrelated UDP traffic until this attempt times out.
-                        continue
-                    if not response:
+                try:
+                    self._socket.send(payload)
+                    response = self._socket.recv(self.receive_size)
+                except socket.timeout:
+                    if attempt == retries:
                         raise QidiConnectionError(
-                            f"empty reply from {self.host}:{self.port}"
+                            f"no reply from {self.host}:{self.port} after {retries} attempts "
+                            f"({self._endpoint_context()})"
                         )
-                    return response
+                    continue
+                except OSError as exc:
+                    if attempt == retries:
+                        raise QidiConnectionError(
+                            f"UDP request failed after {retries} attempts "
+                            f"({self._endpoint_context()}): {exc}"
+                        ) from exc
+                    continue
+
+                if not response:
+                    raise QidiConnectionError(
+                        f"empty reply from {self.host}:{self.port} "
+                        f"({self._endpoint_context()})"
+                    )
+                return response
         finally:
             self._socket.settimeout(previous_timeout)
-        raise QidiConnectionError(f"no valid reply from {self.host}:{self.port}")
+        raise QidiConnectionError(
+            f"no valid reply from {self.host}:{self.port} ({self._endpoint_context()})"
+        )

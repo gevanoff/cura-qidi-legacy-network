@@ -1,8 +1,4 @@
-"""Cura plugin entry point.
-
-The protocol library is implemented and tested first. Cura integration is intentionally
-kept thin and will be activated once the client is verified against a physical i-Fast.
-"""
+"""Cura 5 plugin entry point for legacy QIDI network printing."""
 
 
 def getMetaData():
@@ -10,6 +6,12 @@ def getMetaData():
 
 
 def register(app):
+    from .extension import QidiLegacyNetworkExtension
     from .plugin import QidiLegacyNetworkPlugin
 
-    return {"output_device": QidiLegacyNetworkPlugin(app)}
+    output_plugin = QidiLegacyNetworkPlugin(app)
+    extension = QidiLegacyNetworkExtension(output_plugin)
+    return {
+        "output_device": output_plugin,
+        "extension": extension,
+    }
