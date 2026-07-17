@@ -140,6 +140,12 @@ class QidiLegacyOutputDevice(OutputDevice):
                 "The printer could not create the destination file. Confirm that USB storage "
                 "is inserted, mounted, and writable on the QIDI printer."
             )
+        if "no reply" in lowered or "udp request failed" in lowered:
+            return (
+                f"{text}\n\nWindows sent the UDP request but did not receive the printer's "
+                "reply. Close QIDI Print and any qidi-legacy status monitor, then check Windows "
+                "Defender Firewall or the selected network interface."
+            )
         if "timed out" in lowered or "timeout" in lowered:
             return (
                 "The printer did not respond in time. Confirm the IP address and network "
