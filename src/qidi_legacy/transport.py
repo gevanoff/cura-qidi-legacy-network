@@ -28,7 +28,16 @@ class UdpTransport:
             raise ValueError("timeout must be positive")
         self._remote_ip = socket.gethostbyname(self.host)
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.settimeout(self.timeout)
+        try:
+            # Bind before the first recvfrom(). Linux permits a receive attempt on an
+            # unbound UDP socket, but Winsock rejects it with WSAEINVAL / WinError 10022.
+            # Port zero asks the OS for an ephemeral local port and preserves normal
+            # request/reply behavior on every supported platform.
+            self._socket.bind(("", 0))
+            self._socket.settimeout(self.timeout)
+        except Exception:
+            self._socket.close()
+            raise
 
     def close(self) -> None:
         self._socket.close()
@@ -46,7 +55,7 @@ class UdpTransport:
             while True:
                 try:
                     self._socket.recvfrom(self.receive_size)
-                except BlockingIOError:
+                except (BlockingIOError, InterruptedError):
                     break
         finally:
             self._socket.settimeout(previous_timeout)
