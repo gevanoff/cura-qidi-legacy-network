@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Callable
 
-from .exceptions import QidiProtocolError, QidiUploadError
+from .exceptions import QidiConnectionError, QidiProtocolError, QidiUploadError
 from .framing import BLOCK_PAYLOAD_SIZE, frame_file_block
 from .models import HandshakeInfo, PrinterStatus, RemoteFile
 from .parsing import parse_firmware, parse_handshake, parse_status
@@ -13,6 +14,9 @@ from .transport import UdpTransport
 ProgressCallback = Callable[[int, int], None]
 MAX_RESEND_REQUESTS = 16
 UPLOAD_BLOCK_RETRIES = 1
+UPLOAD_BLOCK_TIMEOUT = 10.0
+UPLOAD_SETTLE_EVERY_BLOCKS = 64
+UPLOAD_SETTLE_SECONDS = 0.01
 _FORBIDDEN_REMOTE_FILENAME_CHARS = set('"\'´`<>()[]?*\\,;:&%#$!/')
 
 
@@ -30,12 +34,24 @@ class QidiLegacyClient:
         port: int = 3000,
         timeout: float = 0.5,
         retries: int = 3,
+        upload_block_timeout: float = UPLOAD_BLOCK_TIMEOUT,
+        upload_settle_every_blocks: int = UPLOAD_SETTLE_EVERY_BLOCKS,
+        upload_settle_seconds: float = UPLOAD_SETTLE_SECONDS,
     ) -> None:
         if retries < 1:
             raise ValueError("retries must be at least 1")
+        if upload_block_timeout <= 0:
+            raise ValueError("upload block timeout must be positive")
+        if upload_settle_every_blocks < 0:
+            raise ValueError("upload settle interval must not be negative")
+        if upload_settle_seconds < 0:
+            raise ValueError("upload settle delay must not be negative")
         self.host = host
         self.port = port
         self.retries = retries
+        self.upload_block_timeout = upload_block_timeout
+        self.upload_settle_every_blocks = upload_settle_every_blocks
+        self.upload_settle_seconds = upload_settle_seconds
         self.transport = UdpTransport(host, port=port, timeout=timeout)
         self.encoding = "utf-8"
         self.handshake_info: HandshakeInfo | None = None
@@ -263,6 +279,7 @@ class QidiLegacyClient:
         remote_file_closed = False
         try:
             offset = 0
+            block_count = 0
             resend_requests = 0
             with path.open("rb") as handle:
                 while offset < total:
@@ -271,17 +288,37 @@ class QidiLegacyClient:
                     # File-block replies are plain, unsequenced ``ok`` datagrams. Retrying
                     # the same block can leave a delayed acknowledgement in the socket and
                     # let the following block advance on the wrong reply. Commands may use
-                    # bounded retries, but an unanswered file block must fail closed.
-                    response = self._request_bytes(
-                        frame_file_block(payload, offset),
-                        timeout=2.0,
-                        retries=UPLOAD_BLOCK_RETRIES,
-                    )
+                    # bounded retries, but an unanswered file block must fail closed. Large
+                    # files get a longer acknowledgement window plus periodic settling time
+                    # so slow USB flushes do not look like a lost response.
+                    try:
+                        response = self._request_bytes(
+                            frame_file_block(payload, offset),
+                            timeout=self.upload_block_timeout,
+                            retries=UPLOAD_BLOCK_RETRIES,
+                        )
+                    except QidiConnectionError as exc:
+                        percent = int(offset * 100 / total)
+                        raise QidiUploadError(
+                            "upload block acknowledgement timed out at "
+                            f"offset {offset} of {total} bytes ({percent}% complete); "
+                            "the partial remote file was closed and the print was not started. "
+                            f"{exc}"
+                        ) from exc
+
                     text = response.decode(self.encoding, errors="replace").strip()
                     if text.lower().startswith("ok"):
                         offset += len(payload)
+                        block_count += 1
                         if progress:
                             progress(offset, total)
+                        if (
+                            offset < total
+                            and self.upload_settle_every_blocks
+                            and block_count % self.upload_settle_every_blocks == 0
+                            and self.upload_settle_seconds
+                        ):
+                            time.sleep(self.upload_settle_seconds)
                         continue
 
                     resend = re.search(r"resend\s+(\d+)", text, flags=re.IGNORECASE)
