@@ -6,7 +6,7 @@ from typing import Callable
 
 from .exceptions import QidiProtocolError, QidiUploadError
 from .framing import BLOCK_PAYLOAD_SIZE, frame_file_block
-from .models import HandshakeInfo, PrinterStatus
+from .models import HandshakeInfo, PrinterStatus, RemoteFile
 from .parsing import parse_firmware, parse_handshake, parse_status
 from .transport import UdpTransport
 
@@ -142,6 +142,84 @@ class QidiLegacyClient:
         match = re.search(r"'([^']+)'", response)
         return match.group(1) if match else None
 
+    def list_files(self) -> list[RemoteFile]:
+        responses = self.transport.request_sequence(
+            b"M20",
+            start_marker=b"Begin file list",
+            end_marker=b"End file list",
+            final_prefix=b"ok L:",
+            timeout=5.0,
+        )
+
+        files: list[RemoteFile] = []
+        collecting = False
+        expected_count: int | None = None
+        for response in responses:
+            text = response.decode(self.encoding, errors="replace")
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line == "Begin file list":
+                    collecting = True
+                    continue
+                if line == "End file list":
+                    collecting = False
+                    continue
+                count_match = re.fullmatch(r"ok\s+L:(\d+)", line, flags=re.IGNORECASE)
+                if count_match:
+                    expected_count = int(count_match.group(1))
+                    continue
+                if not collecting:
+                    continue
+
+                try:
+                    name, size_text = line.rsplit(maxsplit=1)
+                    size = int(size_text)
+                except (ValueError, TypeError) as exc:
+                    raise QidiProtocolError(
+                        f"malformed M20 file-list entry: {line!r}"
+                    ) from exc
+                if size < 0:
+                    raise QidiProtocolError(f"negative remote file size: {line!r}")
+                files.append(RemoteFile(name=name, size=size))
+
+        if expected_count is None:
+            raise QidiProtocolError("M20 response omitted its final file count")
+        if expected_count != len(files):
+            raise QidiProtocolError(
+                f"M20 reported {expected_count} entries but returned {len(files)}"
+            )
+        return files
+
+    def verify_remote_file_size(self, remote_filename: str, expected_size: int) -> RemoteFile:
+        if expected_size < 0:
+            raise ValueError("expected size must not be negative")
+        remote_filename = self._validate_remote_filename(remote_filename)
+        files = self.list_files()
+
+        matches = [item for item in files if item.name == remote_filename]
+        if not matches:
+            matches = [
+                item for item in files if item.name.casefold() == remote_filename.casefold()
+            ]
+        if not matches:
+            raise QidiUploadError(
+                f"uploaded file was not found in remote listing: {remote_filename}"
+            )
+        if len(matches) != 1:
+            raise QidiUploadError(
+                f"remote listing contains multiple matches for {remote_filename}"
+            )
+
+        remote = matches[0]
+        if remote.size != expected_size:
+            raise QidiUploadError(
+                f"remote size verification failed for {remote_filename}: "
+                f"local {expected_size} bytes, remote {remote.size} bytes"
+            )
+        return remote
+
     def pause(self) -> str:
         response = self.command("M25")
         self._require_ok(response, "pausing print")
@@ -169,6 +247,7 @@ class QidiLegacyClient:
         *,
         remote_filename: str | None = None,
         progress: ProgressCallback | None = None,
+        verify_remote_size: bool = False,
     ) -> str:
         path = Path(local_path)
         if not path.is_file():
@@ -181,7 +260,7 @@ class QidiLegacyClient:
         begin = self.command(f"M28 {remote}", timeout=2.0)
         self._require_ok(begin, "creating remote file")
 
-        upload_complete = False
+        remote_file_closed = False
         try:
             offset = 0
             resend_requests = 0
@@ -226,10 +305,12 @@ class QidiLegacyClient:
 
             end = self.command(f"M29 {remote}", timeout=2.0)
             self._require_file_saved(end, remote)
-            upload_complete = True
+            remote_file_closed = True
+            if verify_remote_size:
+                self.verify_remote_file_size(remote, total)
             return remote
         finally:
-            if not upload_complete:
+            if not remote_file_closed:
                 # A failed transfer can leave the printer's remote file handle open.
                 # Closing it is best-effort and must not mask the original failure.
                 try:
