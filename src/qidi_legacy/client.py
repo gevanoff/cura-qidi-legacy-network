@@ -12,6 +12,7 @@ from .transport import UdpTransport
 
 ProgressCallback = Callable[[int, int], None]
 MAX_RESEND_REQUESTS = 16
+UPLOAD_BLOCK_RETRIES = 1
 _FORBIDDEN_REMOTE_FILENAME_CHARS = set('"\'´`<>()[]?*\\,;:&%#$!/')
 
 
@@ -188,7 +189,15 @@ class QidiLegacyClient:
                 while offset < total:
                     handle.seek(offset)
                     payload = handle.read(BLOCK_PAYLOAD_SIZE)
-                    response = self._request_bytes(frame_file_block(payload, offset), timeout=2.0)
+                    # File-block replies are plain, unsequenced ``ok`` datagrams. Retrying
+                    # the same block can leave a delayed acknowledgement in the socket and
+                    # let the following block advance on the wrong reply. Commands may use
+                    # bounded retries, but an unanswered file block must fail closed.
+                    response = self._request_bytes(
+                        frame_file_block(payload, offset),
+                        timeout=2.0,
+                        retries=UPLOAD_BLOCK_RETRIES,
+                    )
                     text = response.decode(self.encoding, errors="replace").strip()
                     if text.lower().startswith("ok"):
                         offset += len(payload)
