@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import time
 from dataclasses import dataclass, field
 
 from .exceptions import QidiConnectionError
@@ -118,3 +119,91 @@ class UdpTransport:
         raise QidiConnectionError(
             f"no valid reply from {self.host}:{self.port} ({self._endpoint_context()})"
         )
+
+    def request_sequence(
+        self,
+        payload: bytes,
+        *,
+        start_marker: bytes,
+        end_marker: bytes,
+        final_prefix: bytes,
+        timeout: float = 5.0,
+        receive_timeout: float = 0.25,
+        max_datagrams: int = 4096,
+    ) -> list[bytes]:
+        """Collect one unsequenced multipart response through its trailing acknowledgement.
+
+        Packets arriving before ``start_marker`` are ignored because legacy QIDI firmware
+        can emit delayed duplicates from the previous command. The trailing acknowledgement
+        is required so it cannot be mistaken for a later command's reply.
+        """
+        if not payload:
+            raise ValueError("payload must not be empty")
+        if not start_marker or not end_marker or not final_prefix:
+            raise ValueError("response markers must not be empty")
+        if timeout <= 0 or receive_timeout <= 0:
+            raise ValueError("timeouts must be positive")
+        if max_datagrams < 1:
+            raise ValueError("max_datagrams must be at least 1")
+
+        self.discard_pending()
+        previous_timeout = self._socket.gettimeout()
+        deadline = time.monotonic() + timeout
+        responses: list[bytes] = []
+        started = False
+        ended = False
+        final_received = False
+        datagram_count = 0
+
+        try:
+            self._socket.send(payload)
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                self._socket.settimeout(min(receive_timeout, max(remaining, 0.001)))
+                try:
+                    response = self._socket.recv(self.receive_size)
+                except socket.timeout:
+                    continue
+                except OSError as exc:
+                    raise QidiConnectionError(
+                        f"multipart UDP request failed ({self._endpoint_context()}): {exc}"
+                    ) from exc
+
+                datagram_count += 1
+                if datagram_count > max_datagrams:
+                    raise QidiConnectionError(
+                        f"multipart response exceeded {max_datagrams} datagrams"
+                    )
+                if not response:
+                    continue
+
+                if not started:
+                    if start_marker not in response:
+                        continue
+                    started = True
+
+                responses.append(response)
+                if end_marker in response:
+                    ended = True
+                if ended and response.strip().lower().startswith(final_prefix.lower()):
+                    final_received = True
+                    break
+        finally:
+            self._socket.settimeout(previous_timeout)
+
+        if not started:
+            raise QidiConnectionError(
+                f"multipart response did not begin with {start_marker!r} "
+                f"({self._endpoint_context()})"
+            )
+        if not ended:
+            raise QidiConnectionError(
+                f"multipart response did not contain {end_marker!r} "
+                f"({self._endpoint_context()})"
+            )
+        if not final_received:
+            raise QidiConnectionError(
+                f"multipart response did not finish with {final_prefix!r} "
+                f"({self._endpoint_context()})"
+            )
+        return responses
