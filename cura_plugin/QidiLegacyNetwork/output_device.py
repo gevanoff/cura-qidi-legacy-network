@@ -140,6 +140,16 @@ class QidiLegacyOutputDevice(OutputDevice):
                 "The printer could not create the destination file. Confirm that USB storage "
                 "is inserted, mounted, and writable on the QIDI printer."
             )
+        if "remote size verification failed" in lowered:
+            return (
+                f"{text}\n\nThe file was saved, but its remote byte count does not match "
+                "Cura's generated G-code. The print was not started."
+            )
+        if "uploaded file was not found" in lowered or "m20" in lowered:
+            return (
+                f"{text}\n\nThe file could not be verified in the printer's M20 listing. "
+                "The print was not started."
+            )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
                 f"{text}\n\nWindows sent the UDP request but did not receive the printer's "
@@ -176,12 +186,17 @@ class QidiLegacyOutputDevice(OutputDevice):
             remote = result.get("remote_filename", "the file")
             started = bool(result.get("started"))
             if started:
-                text = f"Uploaded <filename>{remote}</filename> and started the print."
+                text = (
+                    f"Uploaded <filename>{remote}</filename>, verified its remote size, "
+                    "and started the print."
+                )
             else:
-                text = f"Uploaded <filename>{remote}</filename> to the printer."
+                text = (
+                    f"Uploaded <filename>{remote}</filename> and verified its remote size."
+                )
             Message(
                 text,
-                title="QIDI Upload Complete",
+                title="QIDI Upload Verified",
                 message_type=Message.MessageType.POSITIVE,
             ).show()
             self.writeSuccess.emit(self)
