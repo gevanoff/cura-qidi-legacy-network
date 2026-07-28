@@ -10,11 +10,34 @@ The protocol layer has been physically verified on a QIDI i-Fast running firmwar
 - handshake, firmware query, and status polling;
 - plain `.gcode` upload with the printer-specific save response;
 - touchscreen and network print start;
-- successful completion of real QIDI Print-generated test prints.
+- successful completion of real QIDI Print-generated test prints;
+- Cura-generated upload and print-start from Cura 5.13 on Windows;
+- byte-identical file readback after disabling unsafe automatic file-block retries;
+- remote filename and byte-size verification through the printer's multipart `M20` listing.
 
-The current development milestone is the Cura 5.13 manual-IP output device. Its first build adds
-separate **Upload to QIDI** and **Upload and Print** actions and performs network work in a Cura
-background job.
+The Cura integration provides separate **Upload to QIDI** and **Upload and Print** actions and
+performs network work in a Cura background job. Before reporting success or starting a print, it
+requires the uploaded filename to appear in the remote file list with the same byte count as the
+local G-code.
+
+## Upload safety chain
+
+The legacy protocol does not expose a cryptographic whole-file checksum or file download command.
+The Cura plugin therefore uses the strongest remotely available verification chain:
+
+1. Each 1280-byte data block carries its byte offset and XOR checksum.
+2. File data blocks are transmitted once; an unanswered block aborts the upload rather than being
+   retried against unsequenced `ok` replies.
+3. Explicit firmware `resend <offset>` requests remain supported.
+4. `M29` must confirm that the destination file was saved.
+5. The plugin collects the complete multipart `M20` response through `End file list` and its final
+   `ok L:<count>` acknowledgement.
+6. The exact remote filename must be present.
+7. The remote byte count must match the local source-file size.
+8. **Upload and Print** sends `M6030` only after every preceding check succeeds.
+
+A matching size is not a cryptographic checksum, so the UI describes the result as **remote size
+verified** rather than checksum verified.
 
 ## Development
 
@@ -42,30 +65,31 @@ Close Cura before installing. From WSL, run:
 
 ```bash
 python scripts/install_cura_plugin.py \
-  --cura-config /mnt/c/Users/paper/AppData/Roaming/cura/5.13 \
-  --host 10.10.22.122
+  --cura-config /mnt/c/Users/name/AppData/Roaming/cura/5.13 \
+  --host 192.168.1.123
 ```
 
 The installer creates:
 
 ```text
-C:\Users\paper\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
+C:\Users\name\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
 ```
 
 Restart Cura, slice a model, and open the output-action dropdown. The development plugin provides:
 
-- **Upload to QIDI** — transfers the G-code without starting it;
-- **Upload and Print** — transfers the G-code and explicitly starts it.
+- **Upload to QIDI** — transfers the G-code, verifies its remote size, and does not start it;
+- **Upload and Print** — transfers and verifies the G-code before explicitly starting it.
 
-This first build takes the host during installation. A Cura configuration dialog is planned after
-the output-device path has been validated in Cura 5.13.
+The current development installer takes the host during installation. An in-Cura configuration and
+discovery dialog is planned so users can update or rediscover the printer without reinstalling.
 
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
-2. Implement and validate the Cura 5.13 manual-IP output device. **In progress.**
-3. Add the i-Fast machine definition and dual-extruder profile.
-4. Add monitoring, controls, and discovery after the manual-IP path is stable.
+2. Implement and validate the Cura 5.13 network output device. **Complete for the i-Fast V3.40.**
+3. Add in-Cura address management and MAC-based rediscovery.
+4. Add the i-Fast machine definition and dual-extruder profile.
+5. Add monitoring and controls after the connection and profile paths are stable.
 
 ## Attribution
 
