@@ -150,6 +150,13 @@ class QidiLegacyOutputDevice(OutputDevice):
                 f"{text}\n\nThe file could not be verified in the printer's M20 listing. "
                 "The print was not started."
             )
+        if "upload block acknowledgement timed out" in lowered:
+            return (
+                f"{text}\n\nThe printer stopped acknowledging file blocks during the sustained "
+                "upload. The partial file was closed and the print was not started. This usually "
+                "indicates delayed printer/USB write activity or a lost UDP reply, rather than "
+                "invalid G-code or a general firewall problem."
+            )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
                 f"{text}\n\nWindows sent the UDP request but did not receive the printer's "
