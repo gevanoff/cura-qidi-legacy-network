@@ -19,15 +19,24 @@
 - [x] upload progress and actionable errors
 - [x] optional explicit “upload and start” action
 - [x] Windows Cura 5.13 installation and transfer tests
-- [ ] physical validation of live in-Cura address changes
+- [x] physical validation of live in-Cura address changes
 
 ## Milestone 3 — i-Fast slicing definitions
 
-- [ ] machine geometry and build plate
-- [ ] left/right extruder definitions and offsets
-- [ ] single-extruder modes
-- [ ] verified start/end G-code
-- [ ] baseline PLA/PETG profiles
+- [x] initial 330 × 250 × 320 mm dual-extrusion geometry
+- [x] two 0.4 mm / 1.75 mm extruder definitions
+- [x] conservative Marlin start/end G-code baseline
+- [x] development installer support for Cura definition and extruder resources
+- [x] staged dual-extrusion validation plan and checkerboard test model
+- [ ] confirm T0/T1 physical nozzle mapping
+- [ ] verify single-extruder operation through each nozzle
+- [ ] compare Cura and QIDI Print tool-change G-code
+- [ ] determine whether firmware calibration fully owns nozzle offsets
+- [ ] validate repeated tool changes and prime-tower behavior
+- [ ] add explicit single-extruder modes if required by Cura or firmware behavior
+- [ ] baseline PLA profiles
+- [ ] baseline PETG profiles
+- [ ] mixed-material PLA/PVA validation
 
 ## Milestone 4 — monitoring and discovery
 
