@@ -5,39 +5,45 @@ output-device plugin targeting printers such as the **QIDI i-Fast**.
 
 ## Current status
 
-The protocol layer has been physically verified on a QIDI i-Fast running firmware V3.40:
+The protocol layer has been physically tested on a QIDI i-Fast running firmware V3.40:
 
 - handshake, firmware query, and status polling;
 - plain `.gcode` upload with the printer-specific save response;
-- touchscreen and network print start;
-- successful completion of real QIDI Print-generated test prints;
-- Cura-generated upload and print-start from Cura 5.13 on Windows;
-- byte-identical file readback after disabling unsafe automatic file-block retries;
-- remote filename and byte-size verification through the printer's multipart `M20` listing;
-- a 56,736,598-byte Cura job transferred successfully over wired Ethernet and matched the locally
-  saved G-code after normalizing Windows CRLF line endings to LF.
+- touchscreen and network print-start commands;
+- Cura-generated uploads from Cura 5.13 on Windows;
+- multipart `M20` remote filename and byte-size checking;
+- persistent success/failure notifications;
+- manual in-Cura printer address and UDP-port configuration.
 
-The Cura integration provides separate **Upload to QIDI** and **Upload and Print** actions and
-performs network work in a Cura background job. Before reporting success or starting a print, it
-requires the uploaded filename to appear in the remote file list with the same byte count as the
-local G-code generated for transfer.
+The legacy network path is **not content-safe**. A wired-Ethernet upload of
+`PLA_E_Calibration.gcode` completed normally and passed remote byte-size checking, but the file
+copied back from the printer contained a same-length byte splice around lines 595–597. The printer
+later rejected the malformed line as illegal G-code. A direct USB copy saved by Cura retained the
+correct content after normalizing Windows CRLF line endings to LF.
 
-Upload results are also announced audibly on Windows. Verified completion uses the configured
+Because remote size equality cannot detect this failure, the plugin exposes only **Upload to QIDI**.
+Automatic network print start is disabled in both Cura and the CLI. Use direct removable USB media
+for important jobs and for all machine-definition or dual-extruder validation.
+
+Upload results are announced audibly on Windows. Completion uses the configured
 Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
-attention. Failure notifications remain visible until the user dismisses them.
+attention. Failure notifications remain visible until dismissed.
 
 ## Network transport reliability
 
-The legacy application protocol uses UDP with plain, unsequenced acknowledgements. Repeated Wi-Fi
-attempts to upload a 56,736,598-byte G-code file stopped partway after the printer failed to
-acknowledge a block. Extending the acknowledgement window and adding light pacing did not make that
-Wi-Fi path dependable.
+The legacy application protocol uses UDP with plain, unsequenced acknowledgements. Each 1280-byte
+file block includes an offset and XOR checksum, but the firmware does not expose a whole-file hash
+or a network readback command.
 
-The same substantial job subsequently completed over wired Ethernet. The printer's `M20` listing
-reported the expected remote size, and a file copied back from its USB storage matched the separately
-saved Cura G-code after line-ending normalization. This is strong evidence that Ethernet is the
-preferred network transport, although one successful large transfer does not prove that the legacy
-UDP service can never fail.
+Observed failure modes include:
+
+- repeated Wi-Fi uploads stopping partway after an acknowledgement was lost;
+- a 56,736,598-byte wired-Ethernet upload completing and matching a copied-back file;
+- a later wired-Ethernet upload completing with the correct reported size but corrupted content.
+
+Ethernet reduces Wi-Fi-related loss and timeout frequency, but it does not provide an integrity
+guarantee. The only currently trusted transfer path is saving the generated G-code directly to a
+USB drive and inserting that drive into the printer.
 
 On the i-Fast touchscreen, Ethernet selection is unusual:
 
@@ -49,36 +55,37 @@ Changing the selector can deactivate networking until **Start Operation** is che
 wired interface may receive a different DHCP address from Wi-Fi; configure Cura with the wired
 address and reserve it in DHCP when possible.
 
-For large, long-running, or important jobs, wired Ethernet is recommended over Wi-Fi. Direct USB
-remains the most conservative fallback. A network timeout closes the partial remote file and never
-starts the print.
-
-A Windows-saved Cura file may use CRLF line endings while the plugin's generated transfer file uses
-LF. This makes raw sizes and hashes differ even when the G-code is equivalent. Compare such files
-with line endings normalized, for example:
+A Windows-saved Cura file may use CRLF line endings while the plugin-generated transfer file uses
+LF. Normalize line endings before comparison:
 
 ```bash
 cmp <(sed 's/\r$//' "$LOCAL") <(sed 's/\r$//' "$REMOTE")
 ```
 
-## Upload safety chain
+To compare a Windows-saved copy with a known Git blob:
 
-The legacy protocol does not expose a cryptographic whole-file checksum or file download command.
-The Cura plugin therefore uses the strongest remotely available verification chain:
+```bash
+sed 's/\r$//' "$WINDOWS_FILE" | git hash-object --stdin
+```
+
+## What remote checking does—and does not—prove
+
+The plugin uses the strongest checks currently available from the printer:
 
 1. Each 1280-byte data block carries its byte offset and XOR checksum.
-2. File data blocks are transmitted once; an unanswered block aborts the upload rather than being
-   retried against unsequenced `ok` replies.
+2. File blocks are transmitted once; an unanswered block aborts rather than being blindly retried.
 3. Explicit firmware `resend <offset>` requests remain supported.
 4. `M29` must confirm that the destination file was saved.
-5. The plugin collects the complete multipart `M20` response through `End file list` and its final
-   `ok L:<count>` acknowledgement.
-6. The exact remote filename must be present.
-7. The remote byte count must match the local source-file size.
-8. **Upload and Print** sends `M6030` only after every preceding check succeeds.
+5. The complete multipart `M20` response and final count acknowledgement must be received.
+6. The exact filename must appear remotely.
+7. The remote byte count must match the generated local source.
 
-A matching size is not a cryptographic checksum, so the UI describes the result as **remote size
-verified** rather than checksum verified.
+These checks detect truncation and many transfer failures. They **do not establish content
+integrity** because a corrupted file can retain exactly the same length. Successful uploads are
+therefore described as **size checked**, never checksum verified.
+
+The plugin logs the SHA-256 digest of the exact temporary source generated for each Cura upload.
+That digest is diagnostic only; the printer cannot report a corresponding digest for comparison.
 
 ## Development
 
@@ -96,10 +103,10 @@ qidi-legacy discover --duration 8
 qidi-legacy probe 192.168.1.123
 qidi-legacy status 192.168.1.123
 qidi-legacy upload 192.168.1.123 calibration_cube.gcode
-qidi-legacy upload 192.168.1.123 calibration_cube.gcode --start
 ```
 
-Upload does not start a print unless `--start` is explicit.
+The CLI performs remote filename and byte-size checking but does not start the print. The historical
+`--start` option is rejected with an integrity-safety error.
 
 ## Cura 5.13 development installation
 
@@ -108,7 +115,8 @@ Close Cura before installing. From WSL, run:
 ```bash
 python scripts/install_cura_plugin.py \
   --cura-config /mnt/c/Users/name/AppData/Roaming/cura/5.13 \
-  --host 192.168.1.123
+  --host 192.168.1.123 \
+  --port 3000
 ```
 
 The installer creates:
@@ -117,31 +125,28 @@ The installer creates:
 C:\Users\name\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
 ```
 
-Restart Cura, slice a model, and open the output-action dropdown. The development plugin provides:
+Restart Cura, slice a model, and open the output-action dropdown. The plugin provides:
 
-- **Upload to QIDI** — transfers the G-code, verifies its remote size, and does not start it;
-- **Upload and Print** — transfers and verifies the G-code before explicitly starting it.
+- **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
+  starts it automatically.
 
 After installation, change the address without reinstalling:
 
 1. Open **Extensions > QIDI Legacy Network > Configure Printer Address…**.
-2. Enter the printer hostname or IP address and UDP port.
+2. Enter the printer hostname or IP address and UDP port `3000`.
 3. Select **Save**.
 
-The plugin validates and atomically saves the configuration, removes the old output devices, and
-registers replacement upload actions immediately. A Cura restart is only needed if the live refresh
-fails. Automatic discovery remains a later enhancement; manual address management is the primary
-configuration path.
+The plugin atomically saves the configuration, removes stale output devices—including the old
+**Upload and Print** action—and registers the upload-only device immediately.
 
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
-2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
-   a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
-3. Add in-Cura address management. **Implemented; physical Cura validation pending.**
-4. Add automatic discovery and multi-interface handling.
-5. Add the i-Fast machine definition and dual-extruder profile.
-6. Add monitoring and controls after the connection and profile paths are stable.
+2. Implement Cura 5.13 network upload. **Operational, but not content-safe.**
+3. Add in-Cura address management. **Implemented and physically validated.**
+4. Add the i-Fast machine definition and dual-extruder profile. **In progress; use USB for tests.**
+5. Investigate whether the legacy protocol can be made content-verifiable.
+6. Add monitoring, controls, and optional discovery after the core paths are stable.
 
 ## Attribution
 
