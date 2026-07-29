@@ -79,9 +79,10 @@ def test_registration_waits_for_active_machine_stack() -> None:
     assert manager.devices == {}
 
 
-def test_registration_recreates_devices_and_activates_upload() -> None:
+def test_registration_exposes_only_upload_and_removes_stale_automatic_start() -> None:
     manager = FakeManager()
     manager.devices[UPLOAD_DEVICE_ID] = FakeDevice(UPLOAD_DEVICE_ID)
+    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
     logs = []
 
     def log(*args):
@@ -96,6 +97,7 @@ def test_registration_recreates_devices_and_activates_upload() -> None:
 
     assert registrar.sync() is True
     assert tuple(manager.devices) == DEVICE_IDS
+    assert UPLOAD_AND_PRINT_DEVICE_ID not in manager.devices
     assert manager.getActiveDevice().getId() == UPLOAD_DEVICE_ID
     assert any("success=%s" in entry[1] and entry[-1] is True for entry in logs)
 
@@ -103,6 +105,7 @@ def test_registration_recreates_devices_and_activates_upload() -> None:
 def test_registration_removes_devices_for_non_gcode_machine() -> None:
     manager = FakeManager()
     manager.devices[UPLOAD_DEVICE_ID] = FakeDevice(UPLOAD_DEVICE_ID)
+    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
     registrar = OutputDeviceRegistrar(
         FakeApp(FakeStack("application/x-3mf")),
         manager,
