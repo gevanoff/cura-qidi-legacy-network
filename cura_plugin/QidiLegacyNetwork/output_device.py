@@ -160,17 +160,18 @@ class QidiLegacyOutputDevice(OutputDevice):
             return (
                 f"{text}\n\nThe printer stopped acknowledging file blocks during the sustained "
                 "upload. The partial file was closed and the print was not started. This usually "
-                "indicates delayed printer/USB write activity or a lost UDP reply, rather than "
-                "invalid G-code or a general firewall problem.\n\nFor a reliable transfer of this "
-                "file, save the G-code directly to a USB flash drive, safely eject it, insert it "
-                "into the printer, and start the job from the printer touchscreen. Large network "
-                "uploads remain experimental on this legacy protocol."
+                "indicates a lost UDP reply or delayed printer/USB write activity rather than "
+                "invalid G-code.\n\nWi-Fi has proven unreliable for large transfers on the tested "
+                "i-Fast. Prefer wired Ethernet: select the plug symbol on the printer's Internet "
+                "screen, then check or re-check Start Operation, and configure Cura with the wired "
+                "IP address. If wired Ethernet is unavailable or the failure repeats, save the "
+                "G-code directly to a USB flash drive and start it from the printer touchscreen."
             )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
                 f"{text}\n\nWindows sent the UDP request but did not receive the printer's "
-                "reply. Close QIDI Print and any qidi-legacy status monitor, then check Windows "
-                "Defender Firewall or the selected network interface."
+                "reply. Close QIDI Print and any qidi-legacy status monitor, then confirm the "
+                "selected printer interface and IP address."
             )
         if "timed out" in lowered or "timeout" in lowered:
             return (
