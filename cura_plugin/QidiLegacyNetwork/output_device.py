@@ -161,7 +161,10 @@ class QidiLegacyOutputDevice(OutputDevice):
                 f"{text}\n\nThe printer stopped acknowledging file blocks during the sustained "
                 "upload. The partial file was closed and the print was not started. This usually "
                 "indicates delayed printer/USB write activity or a lost UDP reply, rather than "
-                "invalid G-code or a general firewall problem."
+                "invalid G-code or a general firewall problem.\n\nFor a reliable transfer of this "
+                "file, save the G-code directly to a USB flash drive, safely eject it, insert it "
+                "into the printer, and start the job from the printer touchscreen. Large network "
+                "uploads remain experimental on this legacy protocol."
             )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
