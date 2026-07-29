@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -29,14 +30,15 @@ class QidiLegacyOutputDevice(OutputDevice):
         self._start_after_upload = start_after_upload
         self._writing = False
         self._temp_path: Optional[Path] = None
+        self._source_sha256: Optional[str] = None
         self._job: Optional[QidiUploadJob] = None
         self._message: Optional[Message] = None
         self._result_message: Optional[Message] = None
 
         if start_after_upload:
-            self.setName("QIDI Legacy Network — Upload and Print")
-            self.setShortDescription("Upload and Print")
-            self.setDescription(f"Upload G-code to {config.host} and start printing")
+            self.setName("QIDI Legacy Network — Upload and Print (Disabled)")
+            self.setShortDescription("Upload and Print (Disabled)")
+            self.setDescription("Automatic network print start is disabled for integrity safety")
             self.setIconName("print")
             self.setPriority(4)
         else:
@@ -94,15 +96,23 @@ class QidiLegacyOutputDevice(OutputDevice):
             ) as temp_file:
                 temp_file.write(stream.getvalue())
                 self._temp_path = Path(temp_file.name)
+            source_bytes = self._temp_path.read_bytes()
+            self._source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+            Logger.log(
+                "i",
+                "Prepared QIDI upload source %s: %s bytes sha256=%s",
+                self._temp_path,
+                len(source_bytes),
+                self._source_sha256,
+            )
         except OSError as exc:
             self.writeError.emit(self)
             raise OutputDeviceError.WriteRequestFailedError(
                 f"Could not create temporary G-code file: {exc}"
             ) from exc
 
-        action_text = "Uploading and starting" if self._start_after_upload else "Uploading"
         self._message = Message(
-            f"{action_text} <filename>{remote_filename}</filename> on {self._config.host}",
+            f"Uploading <filename>{remote_filename}</filename> to {self._config.host}",
             lifetime=0,
             dismissable=False,
             progress=0,
@@ -141,6 +151,11 @@ class QidiLegacyOutputDevice(OutputDevice):
     def _friendly_error(error: Exception) -> str:
         text = str(error)
         lowered = text.casefold()
+        if "automatic network print start is disabled" in lowered:
+            return (
+                f"{text}\n\nUse Upload to QIDI only, or save directly to removable USB media. "
+                "Automatic start cannot be made safe with remote byte-count verification alone."
+            )
         if "create file" in lowered:
             return (
                 "The printer could not create the destination file. Confirm that USB storage "
@@ -153,7 +168,7 @@ class QidiLegacyOutputDevice(OutputDevice):
             )
         if "uploaded file was not found" in lowered or "m20" in lowered:
             return (
-                f"{text}\n\nThe file could not be verified in the printer's M20 listing. "
+                f"{text}\n\nThe file could not be checked in the printer's M20 listing. "
                 "The print was not started."
             )
         if "upload block acknowledgement timed out" in lowered:
@@ -162,10 +177,9 @@ class QidiLegacyOutputDevice(OutputDevice):
                 "upload. The partial file was closed and the print was not started. This usually "
                 "indicates a lost UDP reply or delayed printer/USB write activity rather than "
                 "invalid G-code.\n\nWi-Fi has proven unreliable for large transfers on the tested "
-                "i-Fast. Prefer wired Ethernet: select the plug symbol on the printer's Internet "
-                "screen, then check or re-check Start Operation, and configure Cura with the wired "
-                "IP address. If wired Ethernet is unavailable or the failure repeats, save the "
-                "G-code directly to a USB flash drive and start it from the printer touchscreen."
+                "i-Fast. Wired Ethernet reduces timeouts but has also produced silent same-size "
+                "content corruption. Save important G-code directly to a USB flash drive and "
+                "start it from the printer touchscreen."
             )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
@@ -181,7 +195,9 @@ class QidiLegacyOutputDevice(OutputDevice):
         return text or type(error).__name__
 
     def _on_finished(self, job: QidiUploadJob) -> None:
+        source_sha256 = self._source_sha256
         self._cleanup_temp_file()
+        self._source_sha256 = None
         self._writing = False
         self.writeFinished.emit(self)
 
@@ -206,20 +222,23 @@ class QidiLegacyOutputDevice(OutputDevice):
         else:
             result = job.getResult() or {}
             remote = result.get("remote_filename", "the file")
-            started = bool(result.get("started"))
-            if started:
-                text = (
-                    f"Uploaded <filename>{remote}</filename>, verified its remote size, "
-                    "and started the print."
-                )
-            else:
-                text = (
-                    f"Uploaded <filename>{remote}</filename> and verified its remote size."
-                )
+            digest_note = f" Source SHA-256: {source_sha256}." if source_sha256 else ""
+            text = (
+                f"Uploaded <filename>{remote}</filename>; the printer reports the expected byte "
+                "count. Content integrity was not verified, and the print was not started. "
+                "Use direct removable USB media for important jobs."
+                f"{digest_note}"
+            )
+            Logger.log(
+                "w",
+                "QIDI upload completed with size-only verification: remote=%s source_sha256=%s",
+                remote,
+                source_sha256 or "<unavailable>",
+            )
             notify_upload_result(success=True)
             self._result_message = Message(
                 text,
-                title="QIDI Upload Verified",
+                title="QIDI Upload Completed — Size Check Only",
                 message_type=Message.MessageType.POSITIVE,
             )
             self._result_message.show()
