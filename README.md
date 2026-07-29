@@ -50,6 +50,27 @@ A staged validation plan and a small two-part checkerboard model are included in
 - `docs/qidi-ifast-dual-extruder-testing.md`
 - `test_models/dual_checker/`
 
+## Initial QIDI i-Fast machine definition
+
+The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
+
+- a conservative 330 × 250 × 320 mm dual-extrusion build volume;
+- two 0.4 mm extruders using 1.75 mm filament;
+- Marlin-flavor G-code;
+- heated-bed support;
+- minimal start/end G-code without unvalidated XY purge or parking moves;
+- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
+
+The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
+PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
+The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
+and safe limits can be represented without allowing invalid dual-nozzle placement.
+
+A staged validation plan and a small two-part checkerboard model are included in:
+
+- `docs/qidi-ifast-dual-extruder-testing.md`
+- `test_models/dual_checker/`
+
 ## Network transport reliability
 
 The legacy application protocol uses UDP with plain, unsequenced acknowledgements. Each 1280-byte
@@ -149,12 +170,8 @@ C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_0.def.json
 C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_1.def.json
 ```
 
-<<<<<<< HEAD
-Restart Cura, slice a model, and open the output-action dropdown. The plugin provides:
-=======
 Restart Cura, add **QIDI Tech > QIDI i-Fast**, slice a model, and open the output-action dropdown.
 The development plugin provides:
->>>>>>> 1e40567 (Document initial i-Fast machine definition)
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
   starts it automatically.
@@ -162,20 +179,12 @@ The development plugin provides:
 After installation, change the address without reinstalling:
 
 1. Open **Extensions > QIDI Legacy Network > Configure Printer Address…**.
-<<<<<<< HEAD
 2. Enter the printer hostname or IP address and UDP port `3000`.
-3. Select **Save**.
-
-The plugin atomically saves the configuration, removes stale output devices—including the old
-**Upload and Print** action—and registers the upload-only device immediately.
-=======
-2. Enter the printer hostname or IP address and UDP port 3000.
 3. Select **Save**.
 
 The plugin validates and atomically saves the configuration, removes the old output devices, and
 registers replacement upload actions immediately. Automatic discovery remains a later enhancement;
 manual address management is the primary configuration path.
->>>>>>> 1e40567 (Document initial i-Fast machine definition)
 
 ## Project phases
 
