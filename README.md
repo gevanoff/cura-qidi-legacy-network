@@ -37,6 +37,10 @@ the G-code directly to a USB flash drive, safely eject it from the computer, ins
 printer, and start the job from the printer touchscreen. A network timeout leaves the partial
 remote file closed and never starts the print.
 
+This project should not imply that successful small-file testing guarantees reliable transfer of
+large jobs. Community users should treat network upload as optional convenience and retain direct
+USB as the dependable path.
+
 ## Upload safety chain
 
 The legacy protocol does not expose a cryptographic whole-file checksum or file download command.
