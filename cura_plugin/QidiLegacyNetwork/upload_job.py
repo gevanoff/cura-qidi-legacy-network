@@ -40,13 +40,17 @@ class QidiUploadJob(Job):
                     self._local_path,
                     remote_filename=self._remote_filename,
                     progress=self._on_progress,
+                    verify_remote_size=True,
                 )
                 start_response = None
                 if self._start_after_upload:
+                    # M6030 is never sent unless M20 found the exact filename and confirmed
+                    # that its remote byte count matches the generated local G-code.
                     start_response = client.start_print(remote)
                 self.setResult(
                     {
                         "remote_filename": remote,
+                        "remote_size_verified": True,
                         "started": self._start_after_upload,
                         "start_response": start_response,
                     }

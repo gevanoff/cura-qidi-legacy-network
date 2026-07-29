@@ -33,3 +33,9 @@ class PrinterStatus:
     z: float | None = None
     elapsed_seconds: int | None = None
     extra: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteFile:
+    name: str
+    size: int

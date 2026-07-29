@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 from .framing import parse_file_block
 
+_HANDSHAKE = "X:80 Y:80 Z:400 E:95 T:IFAST/330/250/320/0 U:'utf-8'"
+
 
 @dataclass
 class MockPrinterState:
@@ -17,6 +19,8 @@ class MockPrinterState:
     resend_forever_at: int | None = None
     close_count: int = 0
     ifast_v340_save_response: bool = False
+    file_list_size_delta: int = 0
+    stale_handshake_before_file_list: bool = False
 
 
 class MockQidiPrinter:
@@ -92,16 +96,35 @@ class MockQidiPrinter:
         self.state.uploaded[offset:end] = payload
         self._reply("ok", address)
 
+    def _handle_file_list(self, address: tuple[str, int]) -> None:
+        if self.state.stale_handshake_before_file_list:
+            self._reply(f"ok {_HANDSHAKE}\r\n", address)
+        self._reply("Begin file list\r\n", address)
+
+        count = 0
+        if self.state.current_remote_filename is not None:
+            reported_size = len(self.state.uploaded) + self.state.file_list_size_delta
+            self._reply(
+                f"{self.state.current_remote_filename} {max(0, reported_size)}\r\n",
+                address,
+            )
+            count = 1
+
+        self._reply("End file list\r\n", address)
+        self._reply(f"ok L:{count}\r\n", address)
+
     def _handle_command(self, command: str, address: tuple[str, int]) -> None:
         command = command.strip()
         if command == "M4001":
-            self._reply("X:80 Y:80 Z:400 E:95 T:IFAST/330/250/320/0 U:'utf-8'", address)
+            self._reply(_HANDSHAKE, address)
         elif command.startswith("M4002"):
             self._reply("ok 4.3.13", address)
         elif command == "M4000":
             self._reply("B:25/0 E1:24/0 E2:23/0 D:0/0/1 F:0/0 X:1 Y:2 Z:3 T:0", address)
         elif command == "M4006":
             self._reply("ok 'test.gcode'", address)
+        elif command == "M20":
+            self._handle_file_list(address)
         elif command.startswith("M28 "):
             self.state.current_remote_filename = command[4:]
             self.state.uploaded.clear()

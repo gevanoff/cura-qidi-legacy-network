@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 from typing import Callable
 
-from .exceptions import QidiProtocolError, QidiUploadError
+from .exceptions import QidiConnectionError, QidiProtocolError, QidiUploadError
 from .framing import BLOCK_PAYLOAD_SIZE, frame_file_block
-from .models import HandshakeInfo, PrinterStatus
+from .models import HandshakeInfo, PrinterStatus, RemoteFile
 from .parsing import parse_firmware, parse_handshake, parse_status
 from .transport import UdpTransport
 
 ProgressCallback = Callable[[int, int], None]
 MAX_RESEND_REQUESTS = 16
+UPLOAD_BLOCK_RETRIES = 1
+UPLOAD_BLOCK_TIMEOUT = 10.0
+UPLOAD_SETTLE_EVERY_BLOCKS = 64
+UPLOAD_SETTLE_SECONDS = 0.01
 _FORBIDDEN_REMOTE_FILENAME_CHARS = set('"\'´`<>()[]?*\\,;:&%#$!/')
 
 
@@ -29,12 +34,24 @@ class QidiLegacyClient:
         port: int = 3000,
         timeout: float = 0.5,
         retries: int = 3,
+        upload_block_timeout: float = UPLOAD_BLOCK_TIMEOUT,
+        upload_settle_every_blocks: int = UPLOAD_SETTLE_EVERY_BLOCKS,
+        upload_settle_seconds: float = UPLOAD_SETTLE_SECONDS,
     ) -> None:
         if retries < 1:
             raise ValueError("retries must be at least 1")
+        if upload_block_timeout <= 0:
+            raise ValueError("upload block timeout must be positive")
+        if upload_settle_every_blocks < 0:
+            raise ValueError("upload settle interval must not be negative")
+        if upload_settle_seconds < 0:
+            raise ValueError("upload settle delay must not be negative")
         self.host = host
         self.port = port
         self.retries = retries
+        self.upload_block_timeout = upload_block_timeout
+        self.upload_settle_every_blocks = upload_settle_every_blocks
+        self.upload_settle_seconds = upload_settle_seconds
         self.transport = UdpTransport(host, port=port, timeout=timeout)
         self.encoding = "utf-8"
         self.handshake_info: HandshakeInfo | None = None
@@ -141,6 +158,84 @@ class QidiLegacyClient:
         match = re.search(r"'([^']+)'", response)
         return match.group(1) if match else None
 
+    def list_files(self) -> list[RemoteFile]:
+        responses = self.transport.request_sequence(
+            b"M20",
+            start_marker=b"Begin file list",
+            end_marker=b"End file list",
+            final_prefix=b"ok L:",
+            timeout=5.0,
+        )
+
+        files: list[RemoteFile] = []
+        collecting = False
+        expected_count: int | None = None
+        for response in responses:
+            text = response.decode(self.encoding, errors="replace")
+            for raw_line in text.splitlines():
+                line = raw_line.strip()
+                if not line:
+                    continue
+                if line == "Begin file list":
+                    collecting = True
+                    continue
+                if line == "End file list":
+                    collecting = False
+                    continue
+                count_match = re.fullmatch(r"ok\s+L:(\d+)", line, flags=re.IGNORECASE)
+                if count_match:
+                    expected_count = int(count_match.group(1))
+                    continue
+                if not collecting:
+                    continue
+
+                try:
+                    name, size_text = line.rsplit(maxsplit=1)
+                    size = int(size_text)
+                except (ValueError, TypeError) as exc:
+                    raise QidiProtocolError(
+                        f"malformed M20 file-list entry: {line!r}"
+                    ) from exc
+                if size < 0:
+                    raise QidiProtocolError(f"negative remote file size: {line!r}")
+                files.append(RemoteFile(name=name, size=size))
+
+        if expected_count is None:
+            raise QidiProtocolError("M20 response omitted its final file count")
+        if expected_count != len(files):
+            raise QidiProtocolError(
+                f"M20 reported {expected_count} entries but returned {len(files)}"
+            )
+        return files
+
+    def verify_remote_file_size(self, remote_filename: str, expected_size: int) -> RemoteFile:
+        if expected_size < 0:
+            raise ValueError("expected size must not be negative")
+        remote_filename = self._validate_remote_filename(remote_filename)
+        files = self.list_files()
+
+        matches = [item for item in files if item.name == remote_filename]
+        if not matches:
+            matches = [
+                item for item in files if item.name.casefold() == remote_filename.casefold()
+            ]
+        if not matches:
+            raise QidiUploadError(
+                f"uploaded file was not found in remote listing: {remote_filename}"
+            )
+        if len(matches) != 1:
+            raise QidiUploadError(
+                f"remote listing contains multiple matches for {remote_filename}"
+            )
+
+        remote = matches[0]
+        if remote.size != expected_size:
+            raise QidiUploadError(
+                f"remote size verification failed for {remote_filename}: "
+                f"local {expected_size} bytes, remote {remote.size} bytes"
+            )
+        return remote
+
     def pause(self) -> str:
         response = self.command("M25")
         self._require_ok(response, "pausing print")
@@ -168,6 +263,7 @@ class QidiLegacyClient:
         *,
         remote_filename: str | None = None,
         progress: ProgressCallback | None = None,
+        verify_remote_size: bool = False,
     ) -> str:
         path = Path(local_path)
         if not path.is_file():
@@ -180,20 +276,49 @@ class QidiLegacyClient:
         begin = self.command(f"M28 {remote}", timeout=2.0)
         self._require_ok(begin, "creating remote file")
 
-        upload_complete = False
+        remote_file_closed = False
         try:
             offset = 0
+            block_count = 0
             resend_requests = 0
             with path.open("rb") as handle:
                 while offset < total:
                     handle.seek(offset)
                     payload = handle.read(BLOCK_PAYLOAD_SIZE)
-                    response = self._request_bytes(frame_file_block(payload, offset), timeout=2.0)
+                    # File-block replies are plain, unsequenced ``ok`` datagrams. Retrying
+                    # the same block can leave a delayed acknowledgement in the socket and
+                    # let the following block advance on the wrong reply. Commands may use
+                    # bounded retries, but an unanswered file block must fail closed. Large
+                    # files get a longer acknowledgement window plus periodic settling time
+                    # so slow USB flushes do not look like a lost response.
+                    try:
+                        response = self._request_bytes(
+                            frame_file_block(payload, offset),
+                            timeout=self.upload_block_timeout,
+                            retries=UPLOAD_BLOCK_RETRIES,
+                        )
+                    except QidiConnectionError as exc:
+                        percent = int(offset * 100 / total)
+                        raise QidiUploadError(
+                            "upload block acknowledgement timed out at "
+                            f"offset {offset} of {total} bytes ({percent}% complete); "
+                            "the partial remote file was closed and the print was not started. "
+                            f"{exc}"
+                        ) from exc
+
                     text = response.decode(self.encoding, errors="replace").strip()
                     if text.lower().startswith("ok"):
                         offset += len(payload)
+                        block_count += 1
                         if progress:
                             progress(offset, total)
+                        if (
+                            offset < total
+                            and self.upload_settle_every_blocks
+                            and block_count % self.upload_settle_every_blocks == 0
+                            and self.upload_settle_seconds
+                        ):
+                            time.sleep(self.upload_settle_seconds)
                         continue
 
                     resend = re.search(r"resend\s+(\d+)", text, flags=re.IGNORECASE)
@@ -217,10 +342,12 @@ class QidiLegacyClient:
 
             end = self.command(f"M29 {remote}", timeout=2.0)
             self._require_file_saved(end, remote)
-            upload_complete = True
+            remote_file_closed = True
+            if verify_remote_size:
+                self.verify_remote_file_size(remote, total)
             return remote
         finally:
-            if not upload_complete:
+            if not remote_file_closed:
                 # A failed transfer can leave the printer's remote file handle open.
                 # Closing it is best-effort and must not mask the original failure.
                 try:

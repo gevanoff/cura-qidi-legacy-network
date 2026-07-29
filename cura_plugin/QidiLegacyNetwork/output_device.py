@@ -14,6 +14,7 @@ from UM.OutputDevice.OutputDevice import OutputDevice
 from UM.PluginRegistry import PluginRegistry
 
 from .config import PluginConfig
+from .notifications import notify_upload_result
 from .upload_job import QidiUploadJob
 
 _FORBIDDEN_FILENAME_CHARS = re.compile(r'["\'´`<>()\[\]?*\\,;:&%#$!/]+')
@@ -30,6 +31,7 @@ class QidiLegacyOutputDevice(OutputDevice):
         self._temp_path: Optional[Path] = None
         self._job: Optional[QidiUploadJob] = None
         self._message: Optional[Message] = None
+        self._result_message: Optional[Message] = None
 
         if start_after_upload:
             self.setName("QIDI Legacy Network — Upload and Print")
@@ -64,6 +66,10 @@ class QidiLegacyOutputDevice(OutputDevice):
     ) -> None:
         if self._writing:
             raise OutputDeviceError.DeviceBusyError()
+
+        if self._result_message is not None:
+            self._result_message.hide()
+            self._result_message = None
 
         self.writeStarted.emit(self)
 
@@ -140,11 +146,32 @@ class QidiLegacyOutputDevice(OutputDevice):
                 "The printer could not create the destination file. Confirm that USB storage "
                 "is inserted, mounted, and writable on the QIDI printer."
             )
+        if "remote size verification failed" in lowered:
+            return (
+                f"{text}\n\nThe file was saved, but its remote byte count does not match "
+                "Cura's generated G-code. The print was not started."
+            )
+        if "uploaded file was not found" in lowered or "m20" in lowered:
+            return (
+                f"{text}\n\nThe file could not be verified in the printer's M20 listing. "
+                "The print was not started."
+            )
+        if "upload block acknowledgement timed out" in lowered:
+            return (
+                f"{text}\n\nThe printer stopped acknowledging file blocks during the sustained "
+                "upload. The partial file was closed and the print was not started. This usually "
+                "indicates a lost UDP reply or delayed printer/USB write activity rather than "
+                "invalid G-code.\n\nWi-Fi has proven unreliable for large transfers on the tested "
+                "i-Fast. Prefer wired Ethernet: select the plug symbol on the printer's Internet "
+                "screen, then check or re-check Start Operation, and configure Cura with the wired "
+                "IP address. If wired Ethernet is unavailable or the failure repeats, save the "
+                "G-code directly to a USB flash drive and start it from the printer touchscreen."
+            )
         if "no reply" in lowered or "udp request failed" in lowered:
             return (
                 f"{text}\n\nWindows sent the UDP request but did not receive the printer's "
-                "reply. Close QIDI Print and any qidi-legacy status monitor, then check Windows "
-                "Defender Firewall or the selected network interface."
+                "reply. Close QIDI Print and any qidi-legacy status monitor, then confirm the "
+                "selected printer interface and IP address."
             )
         if "timed out" in lowered or "timeout" in lowered:
             return (
@@ -165,25 +192,37 @@ class QidiLegacyOutputDevice(OutputDevice):
         error = job.getError()
         if error is not None:
             Logger.log("e", "QIDI upload failed: %s", error)
-            Message(
+            notify_upload_result(success=False)
+            self._result_message = Message(
                 self._friendly_error(error),
+                lifetime=0,
+                dismissable=True,
+                use_inactivity_timer=False,
                 title="QIDI Upload Failed",
                 message_type=Message.MessageType.ERROR,
-            ).show()
+            )
+            self._result_message.show()
             self.writeError.emit(self)
         else:
             result = job.getResult() or {}
             remote = result.get("remote_filename", "the file")
             started = bool(result.get("started"))
             if started:
-                text = f"Uploaded <filename>{remote}</filename> and started the print."
+                text = (
+                    f"Uploaded <filename>{remote}</filename>, verified its remote size, "
+                    "and started the print."
+                )
             else:
-                text = f"Uploaded <filename>{remote}</filename> to the printer."
-            Message(
+                text = (
+                    f"Uploaded <filename>{remote}</filename> and verified its remote size."
+                )
+            notify_upload_result(success=True)
+            self._result_message = Message(
                 text,
-                title="QIDI Upload Complete",
+                title="QIDI Upload Verified",
                 message_type=Message.MessageType.POSITIVE,
-            ).show()
+            )
+            self._result_message.show()
             self.writeSuccess.emit(self)
 
         self._job = None
