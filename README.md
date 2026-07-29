@@ -20,6 +20,10 @@ performs network work in a Cura background job. Before reporting success or star
 requires the uploaded filename to appear in the remote file list with the same byte count as the
 local G-code.
 
+Upload results are also announced audibly on Windows. Verified completion uses the configured
+Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
+attention. Failure notifications remain visible until the user dismisses them.
+
 ## Upload safety chain
 
 The legacy protocol does not expose a cryptographic whole-file checksum or file download command.
