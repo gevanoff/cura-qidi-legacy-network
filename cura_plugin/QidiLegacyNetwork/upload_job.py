@@ -6,6 +6,7 @@ from UM.Job import Job
 
 from .config import PluginConfig
 from .qidi_legacy.client import QidiLegacyClient
+from .qidi_legacy.exceptions import QidiUploadError
 
 
 class QidiUploadJob(Job):
@@ -29,6 +30,13 @@ class QidiUploadJob(Job):
 
     def run(self) -> None:
         try:
+            if self._start_after_upload:
+                raise QidiUploadError(
+                    "automatic network print start is disabled because the legacy QIDI "
+                    "protocol can store same-size corrupted content that remote size "
+                    "verification cannot detect"
+                )
+
             with QidiLegacyClient(
                 self._config.host,
                 port=self._config.port,
@@ -42,17 +50,13 @@ class QidiUploadJob(Job):
                     progress=self._on_progress,
                     verify_remote_size=True,
                 )
-                start_response = None
-                if self._start_after_upload:
-                    # M6030 is never sent unless M20 found the exact filename and confirmed
-                    # that its remote byte count matches the generated local G-code.
-                    start_response = client.start_print(remote)
                 self.setResult(
                     {
                         "remote_filename": remote,
                         "remote_size_verified": True,
-                        "started": self._start_after_upload,
-                        "start_response": start_response,
+                        "content_verified": False,
+                        "started": False,
+                        "start_response": None,
                     }
                 )
         except Exception as exc:

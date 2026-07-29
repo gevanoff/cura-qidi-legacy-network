@@ -7,7 +7,7 @@ from dataclasses import asdict
 
 from .client import QidiLegacyClient
 from .discovery import discover
-from .exceptions import QidiError
+from .exceptions import QidiError, QidiUploadError
 
 
 def _client(args: argparse.Namespace) -> QidiLegacyClient:
@@ -34,7 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--start",
                 action="store_true",
-                help="start printing after upload; omitted by default for safety",
+                help=(
+                    "disabled: automatic start is unsafe because remote size equality "
+                    "does not establish content integrity"
+                ),
             )
     return parser
 
@@ -42,6 +45,13 @@ def build_parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> dict[str, object] | list[dict[str, object]]:
     if args.action == "discover":
         return [asdict(item) for item in discover(port=args.port, duration=args.duration)]
+
+    if args.action == "upload" and args.start:
+        raise QidiUploadError(
+            "automatic network print start is disabled because the legacy QIDI protocol "
+            "can store same-size corrupted content that remote byte-count verification "
+            "cannot detect; upload without --start or use direct removable USB media"
+        )
 
     with _client(args) as client:
         handshake = client.connect()
@@ -53,12 +63,22 @@ def run(args: argparse.Namespace) -> dict[str, object] | list[dict[str, object]]
         def progress(done: int, total: int) -> None:
             print(f"uploaded {done}/{total} bytes", file=sys.stderr, flush=True)
 
-        remote = client.upload_file(args.file, remote_filename=args.remote_name, progress=progress)
-        result: dict[str, object] = {"uploaded": remote, "started": False}
-        if args.start:
-            result["start_response"] = client.start_print(remote)
-            result["started"] = True
-        return result
+        remote = client.upload_file(
+            args.file,
+            remote_filename=args.remote_name,
+            progress=progress,
+            verify_remote_size=True,
+        )
+        return {
+            "uploaded": remote,
+            "remote_size_verified": True,
+            "content_verified": False,
+            "started": False,
+            "warning": (
+                "remote byte count matched, but content integrity was not verified; "
+                "use direct removable USB media for important jobs"
+            ),
+        }
 
 
 def main() -> int:
