@@ -7,7 +7,7 @@ from UM.Logger import Logger
 from UM.OutputDevice.OutputDevicePlugin import OutputDevicePlugin
 from UM.PluginRegistry import PluginRegistry
 
-from .config import PluginConfig, load_config
+from .config import PluginConfig, build_config, load_config, save_config
 from .output_device import QidiLegacyOutputDevice
 from .registration import OutputDeviceRegistrar
 
@@ -17,27 +17,28 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
         super().__init__()
         self._app = app
         self._config: PluginConfig | None = None
+        self._config_path: Path | None = None
         self._registrar: OutputDeviceRegistrar | None = None
         self._started = False
         self._signals_connected = False
 
-    def _ensure_registrar(self) -> bool:
-        if self._registrar is not None:
-            return True
+    def _locate_config_path(self) -> Path:
+        if self._config_path is not None:
+            return self._config_path
 
         plugin_path = PluginRegistry.getInstance().getPluginPath("QidiLegacyNetwork")
         if not plugin_path:
-            Logger.log("e", "Cannot locate the QIDI Legacy Network plugin directory")
-            return False
+            raise RuntimeError("Cannot locate the QIDI Legacy Network plugin directory")
+        self._config_path = Path(plugin_path) / "config.json"
+        return self._config_path
 
-        try:
-            self._config = load_config(Path(plugin_path) / "config.json")
-        except Exception as exc:
-            Logger.log("e", "Cannot load QIDI Legacy Network configuration: %s", exc)
-            return False
+    def _load_configuration(self) -> PluginConfig:
+        if self._config is None:
+            self._config = load_config(self._locate_config_path())
+        return self._config
 
-        config = self._config
-        self._registrar = OutputDeviceRegistrar(
+    def _make_registrar(self, config: PluginConfig) -> OutputDeviceRegistrar:
+        return OutputDeviceRegistrar(
             self._app,
             self.getOutputDeviceManager(),
             lambda start_after_upload: QidiLegacyOutputDevice(
@@ -46,6 +47,18 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
             ),
             Logger.log,
         )
+
+    def _ensure_registrar(self) -> bool:
+        if self._registrar is not None:
+            return True
+
+        try:
+            config = self._load_configuration()
+        except Exception as exc:
+            Logger.log("e", "Cannot load QIDI Legacy Network configuration: %s", exc)
+            return False
+
+        self._registrar = self._make_registrar(config)
         return True
 
     def start(self) -> None:
@@ -98,10 +111,40 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
         self._started = True
         return self._sync_output_devices("manual refresh")
 
+    def configuration(self) -> PluginConfig:
+        return self._load_configuration()
+
     def configuration_summary(self) -> str:
-        if not self._ensure_registrar() or self._config is None:
+        try:
+            config = self.configuration()
+        except Exception:
             return "Configuration unavailable"
-        return f"{self._config.host}:{self._config.port}"
+        return f"{config.host}:{config.port}"
+
+    def update_configuration(self, host: str, port: int) -> PluginConfig:
+        """Persist a new address and recreate Cura's output devices immediately."""
+
+        current = self.configuration()
+        updated = build_config(
+            host,
+            port,
+            timeout=current.timeout,
+            retries=current.retries,
+        )
+        save_config(self._locate_config_path(), updated)
+
+        if self._registrar is not None:
+            self._registrar.remove()
+        self._config = updated
+        self._registrar = self._make_registrar(updated)
+        self._started = True
+
+        if not self._sync_output_devices("configuration changed"):
+            raise RuntimeError(
+                "The address was saved, but Cura could not refresh the QIDI output devices. "
+                "Restart Cura or use Extensions > QIDI Legacy Network > Refresh Output Devices."
+            )
+        return updated
 
     def stop(self) -> None:
         self._started = False

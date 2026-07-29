@@ -122,17 +122,26 @@ Restart Cura, slice a model, and open the output-action dropdown. The developmen
 - **Upload to QIDI** — transfers the G-code, verifies its remote size, and does not start it;
 - **Upload and Print** — transfers and verifies the G-code before explicitly starting it.
 
-The current development installer takes the host during installation. An in-Cura configuration and
-discovery dialog is planned so users can update or rediscover the printer without reinstalling.
+After installation, change the address without reinstalling:
+
+1. Open **Extensions > QIDI Legacy Network > Configure Printer Address…**.
+2. Enter the printer hostname or IP address and UDP port.
+3. Select **Save**.
+
+The plugin validates and atomically saves the configuration, removes the old output devices, and
+registers replacement upload actions immediately. A Cura restart is only needed if the live refresh
+fails. Automatic discovery remains a later enhancement; manual address management is the primary
+configuration path.
 
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
 2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
    a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
-3. Add in-Cura address management and MAC-based rediscovery.
-4. Add the i-Fast machine definition and dual-extruder profile.
-5. Add monitoring and controls after the connection and profile paths are stable.
+3. Add in-Cura address management. **Implemented; physical Cura validation pending.**
+4. Add automatic discovery and multi-interface handling.
+5. Add the i-Fast machine definition and dual-extruder profile.
+6. Add monitoring and controls after the connection and profile paths are stable.
 
 ## Attribution
 
