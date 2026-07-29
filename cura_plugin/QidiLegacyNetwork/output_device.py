@@ -14,6 +14,7 @@ from UM.OutputDevice.OutputDevice import OutputDevice
 from UM.PluginRegistry import PluginRegistry
 
 from .config import PluginConfig
+from .notifications import notify_upload_result
 from .upload_job import QidiUploadJob
 
 _FORBIDDEN_FILENAME_CHARS = re.compile(r'["\'´`<>()\[\]?*\\,;:&%#$!/]+')
@@ -30,6 +31,7 @@ class QidiLegacyOutputDevice(OutputDevice):
         self._temp_path: Optional[Path] = None
         self._job: Optional[QidiUploadJob] = None
         self._message: Optional[Message] = None
+        self._result_message: Optional[Message] = None
 
         if start_after_upload:
             self.setName("QIDI Legacy Network — Upload and Print")
@@ -64,6 +66,10 @@ class QidiLegacyOutputDevice(OutputDevice):
     ) -> None:
         if self._writing:
             raise OutputDeviceError.DeviceBusyError()
+
+        if self._result_message is not None:
+            self._result_message.hide()
+            self._result_message = None
 
         self.writeStarted.emit(self)
 
@@ -182,11 +188,16 @@ class QidiLegacyOutputDevice(OutputDevice):
         error = job.getError()
         if error is not None:
             Logger.log("e", "QIDI upload failed: %s", error)
-            Message(
+            notify_upload_result(success=False)
+            self._result_message = Message(
                 self._friendly_error(error),
+                lifetime=0,
+                dismissable=True,
+                use_inactivity_timer=False,
                 title="QIDI Upload Failed",
                 message_type=Message.MessageType.ERROR,
-            ).show()
+            )
+            self._result_message.show()
             self.writeError.emit(self)
         else:
             result = job.getResult() or {}
@@ -201,11 +212,13 @@ class QidiLegacyOutputDevice(OutputDevice):
                 text = (
                     f"Uploaded <filename>{remote}</filename> and verified its remote size."
                 )
-            Message(
+            notify_upload_result(success=True)
+            self._result_message = Message(
                 text,
                 title="QIDI Upload Verified",
                 message_type=Message.MessageType.POSITIVE,
-            ).show()
+            )
+            self._result_message.show()
             self.writeSuccess.emit(self)
 
         self._job = None
