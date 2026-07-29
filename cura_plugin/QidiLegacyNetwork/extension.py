@@ -32,7 +32,8 @@ class _PrinterAddressDialog(QDialog):
 
         explanation = QLabel(
             "Enter the printer's wired Ethernet address when available. On the i-Fast, "
-            "select the plug symbol and check or re-check Start Operation."
+            "select the plug symbol and check or re-check Start Operation. Network uploads "
+            "receive a remote byte-count check only; use direct USB for important jobs."
         )
         explanation.setWordWrap(True)
 
@@ -72,7 +73,7 @@ class _PrinterAddressDialog(QDialog):
             return
 
         Message(
-            f"QIDI output actions now use {config.host}:{config.port}.",
+            f"QIDI upload action now uses {config.host}:{config.port}.",
             title="QIDI Printer Address Updated",
             message_type=Message.MessageType.POSITIVE,
         ).show()
@@ -115,11 +116,14 @@ class QidiLegacyNetworkExtension(Extension):
     def _refresh_output_devices(self) -> None:
         success = self._plugin.refresh_now()
         if success:
-            text = "QIDI upload actions were registered and Upload to QIDI was selected."
+            text = (
+                "Upload to QIDI was registered and selected. The historical automatic-start "
+                "action was removed for integrity safety."
+            )
             message_type = Message.MessageType.POSITIVE
         else:
             text = (
-                "QIDI output devices could not be registered. Check cura.log for "
+                "The QIDI upload device could not be registered. Check cura.log for "
                 "QIDI output-device sync details."
             )
             message_type = Message.MessageType.ERROR
