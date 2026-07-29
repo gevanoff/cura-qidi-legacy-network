@@ -24,6 +24,19 @@ Upload results are also announced audibly on Windows. Verified completion uses t
 Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
 attention. Failure notifications remain visible until the user dismisses them.
 
+## Large-file limitation
+
+Network uploads over this legacy UDP protocol are a convenience feature, not a fully reliable
+replacement for direct USB transfer. Smaller files have completed and verified successfully, but
+repeated uploads of a 56,736,598-byte G-code file stopped partway after the printer failed to
+acknowledge a data block. Longer acknowledgement windows and light pacing improved diagnostics but
+did not establish reliable large-file transfer.
+
+There is not yet a validated file-size cutoff. For large, long-running, or important prints, save
+the G-code directly to a USB flash drive, safely eject it from the computer, insert it into the
+printer, and start the job from the printer touchscreen. A network timeout leaves the partial
+remote file closed and never starts the print.
+
 ## Upload safety chain
 
 The legacy protocol does not expose a cryptographic whole-file checksum or file download command.
@@ -90,7 +103,8 @@ discovery dialog is planned so users can update or rediscover the printer withou
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
-2. Implement and validate the Cura 5.13 network output device. **Complete for the i-Fast V3.40.**
+2. Implement and validate the Cura 5.13 network output device. **Validated for smaller files on the
+   i-Fast V3.40; large-file reliability remains limited.**
 3. Add in-Cura address management and MAC-based rediscovery.
 4. Add the i-Fast machine definition and dual-extruder profile.
 5. Add monitoring and controls after the connection and profile paths are stable.
