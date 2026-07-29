@@ -4,7 +4,11 @@ from typing import Any, Callable
 
 UPLOAD_DEVICE_ID = "qidi_legacy_upload"
 UPLOAD_AND_PRINT_DEVICE_ID = "qidi_legacy_upload_and_print"
-DEVICE_IDS = (UPLOAD_DEVICE_ID, UPLOAD_AND_PRINT_DEVICE_ID)
+
+# Only the upload-only device is exposed. Keep the historical automatic-start ID in
+# the managed set so upgrades remove a stale device registered by older versions.
+DEVICE_IDS = (UPLOAD_DEVICE_ID,)
+MANAGED_DEVICE_IDS = (UPLOAD_DEVICE_ID, UPLOAD_AND_PRINT_DEVICE_ID)
 
 DeviceFactory = Callable[[bool], Any]
 LogFunction = Callable[..., None]
@@ -26,7 +30,6 @@ def machine_supports_gcode(stack: Any) -> bool:
     Some third-party/custom stacks omit ``file_formats`` metadata. Cura's GCodeWriter
     is still usable for those stacks, so missing metadata is treated as compatible.
     """
-
     if stack is None:
         return False
     getter = getattr(stack, "getMetaDataEntry", None)
@@ -43,7 +46,7 @@ def machine_supports_gcode(stack: Any) -> bool:
 
 
 class OutputDeviceRegistrar:
-    """Synchronize the two QIDI devices with Cura's shared output manager."""
+    """Synchronize the safe QIDI upload device with Cura's output manager."""
 
     def __init__(
         self,
@@ -58,7 +61,7 @@ class OutputDeviceRegistrar:
         self._log = log
 
     def remove(self) -> None:
-        for device_id in DEVICE_IDS:
+        for device_id in MANAGED_DEVICE_IDS:
             if self._manager.getOutputDevice(device_id) is not None:
                 self._manager.removeOutputDevice(device_id)
 
@@ -76,12 +79,11 @@ class OutputDeviceRegistrar:
             )
             return False
 
-        # Remove and recreate the devices deliberately. This emits a fresh
-        # outputDevicesChanged signal after Cura has finished constructing its UI and
-        # active machine stack, avoiding devices registered too early in startup.
+        # Remove and recreate deliberately. This also removes the historical
+        # qidi_legacy_upload_and_print device, which is unsafe because the printer can
+        # store same-size corrupted content that remote byte-count verification misses.
         self.remove()
         self._manager.addOutputDevice(self._device_factory(False))
-        self._manager.addOutputDevice(self._device_factory(True))
 
         if activate_upload:
             self._manager.setActiveDevice(UPLOAD_DEVICE_ID)
@@ -89,7 +91,9 @@ class OutputDeviceRegistrar:
         manager_ids = list(self._manager.getOutputDeviceIds())
         active = self._manager.getActiveDevice()
         active_id = active.getId() if active is not None else "<none>"
-        success = all(device_id in manager_ids for device_id in DEVICE_IDS)
+        success = all(device_id in manager_ids for device_id in DEVICE_IDS) and (
+            UPLOAD_AND_PRINT_DEVICE_ID not in manager_ids
+        )
         self._log(
             "i",
             "QIDI output-device sync for machine %s: expected=%s manager=%s active=%s success=%s",
