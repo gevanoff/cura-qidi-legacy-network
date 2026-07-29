@@ -1,18 +1,116 @@
 from __future__ import annotations
 
+from PyQt6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QSpinBox,
+    QVBoxLayout,
+)
 from UM.Extension import Extension
 from UM.Message import Message
 
 
+class _PrinterAddressDialog(QDialog):
+    def __init__(self, plugin) -> None:
+        super().__init__()
+        self._plugin = plugin
+        self.setWindowTitle("QIDI Legacy Network — Printer Address")
+        self.setModal(True)
+        self.setMinimumWidth(440)
+
+        config = plugin.configuration()
+        self._host = QLineEdit(config.host)
+        self._host.setPlaceholderText("Printer hostname or IP address")
+        self._host.selectAll()
+
+        self._port = QSpinBox()
+        self._port.setRange(1, 65535)
+        self._port.setValue(config.port)
+
+        explanation = QLabel(
+            "Enter the printer's wired Ethernet address when available. On the i-Fast, "
+            "select the plug symbol and check or re-check Start Operation."
+        )
+        explanation.setWordWrap(True)
+
+        form = QFormLayout()
+        form.addRow("Printer address:", self._host)
+        form.addRow("UDP port:", self._port)
+
+        self._error = QLabel()
+        self._error.setWordWrap(True)
+        self._error.setStyleSheet("color: #d32f2f;")
+        self._error.hide()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(explanation)
+        layout.addLayout(form)
+        layout.addWidget(self._error)
+        layout.addWidget(buttons)
+
+    def _show_error(self, text: str) -> None:
+        self._error.setText(text)
+        self._error.show()
+
+    def _save(self) -> None:
+        try:
+            config = self._plugin.update_configuration(
+                self._host.text(),
+                self._port.value(),
+            )
+        except Exception as exc:
+            self._show_error(str(exc) or type(exc).__name__)
+            return
+
+        Message(
+            f"QIDI output actions now use {config.host}:{config.port}.",
+            title="QIDI Printer Address Updated",
+            message_type=Message.MessageType.POSITIVE,
+        ).show()
+        self.accept()
+
+
 class QidiLegacyNetworkExtension(Extension):
-    """Small Cura menu surface for diagnostics and manual device refresh."""
+    """Cura menu surface for printer configuration and diagnostics."""
 
     def __init__(self, plugin) -> None:
         super().__init__()
         self._plugin = plugin
+        self._configuration_dialog: _PrinterAddressDialog | None = None
         self.setMenuName("QIDI Legacy Network")
+        self.addMenuItem("Configure Printer Address…", self._configure_printer)
         self.addMenuItem("Refresh Output Devices", self._refresh_output_devices)
         self.addMenuItem("Show Connection", self._show_connection)
+
+    def _configure_printer(self) -> None:
+        try:
+            self._configuration_dialog = _PrinterAddressDialog(self._plugin)
+        except Exception as exc:
+            Message(
+                str(exc) or type(exc).__name__,
+                lifetime=0,
+                dismissable=True,
+                use_inactivity_timer=False,
+                title="QIDI Configuration Unavailable",
+                message_type=Message.MessageType.ERROR,
+            ).show()
+            return
+        self._configuration_dialog.finished.connect(self._configuration_dialog_closed)
+        self._configuration_dialog.show()
+        self._configuration_dialog.raise_()
+        self._configuration_dialog.activateWindow()
+
+    def _configuration_dialog_closed(self, _result: int) -> None:
+        self._configuration_dialog = None
 
     def _refresh_output_devices(self) -> None:
         success = self._plugin.refresh_now()
