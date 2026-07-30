@@ -5,8 +5,8 @@ from typing import Any, Callable
 UPLOAD_DEVICE_ID = "qidi_legacy_upload"
 UPLOAD_AND_PRINT_DEVICE_ID = "qidi_legacy_upload_and_print"
 
-# Only the upload-only device is exposed. Keep the historical automatic-start ID in
-# the managed set so upgrades remove a stale device registered by older versions.
+# Only the upload-only device is exposed. It is also a PrinterOutputDevice, so the same
+# long-lived instance supplies Cura's read-only Monitor view.
 DEVICE_IDS = (UPLOAD_DEVICE_ID,)
 MANAGED_DEVICE_IDS = (UPLOAD_DEVICE_ID, UPLOAD_AND_PRINT_DEVICE_ID)
 
@@ -46,7 +46,7 @@ def machine_supports_gcode(stack: Any) -> bool:
 
 
 class OutputDeviceRegistrar:
-    """Synchronize the safe QIDI upload device with Cura's output manager."""
+    """Synchronize the safe QIDI upload/monitor device with Cura's output manager."""
 
     def __init__(
         self,
@@ -60,10 +60,21 @@ class OutputDeviceRegistrar:
         self._device_factory = device_factory
         self._log = log
 
+    def _remove_device(self, device_id: str) -> None:
+        device = self._manager.getOutputDevice(device_id)
+        if device is None:
+            return
+        close = getattr(device, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                self._log("w", "Could not close QIDI output device %s", device_id)
+        self._manager.removeOutputDevice(device_id)
+
     def remove(self) -> None:
         for device_id in MANAGED_DEVICE_IDS:
-            if self._manager.getOutputDevice(device_id) is not None:
-                self._manager.removeOutputDevice(device_id)
+            self._remove_device(device_id)
 
     def sync(self, *, activate_upload: bool = True) -> bool:
         stack = self._app.getGlobalContainerStack()
@@ -79,11 +90,12 @@ class OutputDeviceRegistrar:
             )
             return False
 
-        # Remove and recreate deliberately. This also removes the historical
-        # qidi_legacy_upload_and_print device, which is unsafe because the printer can
-        # store same-size corrupted content that remote byte-count verification misses.
-        self.remove()
-        self._manager.addOutputDevice(self._device_factory(False))
+        # Remove the historical automatic-start device, but preserve the current upload/monitor
+        # device across routine Cura state-change signals. Recreating it would repeatedly reset
+        # the Monitor view and leave status workers finishing against discarded objects.
+        self._remove_device(UPLOAD_AND_PRINT_DEVICE_ID)
+        if self._manager.getOutputDevice(UPLOAD_DEVICE_ID) is None:
+            self._manager.addOutputDevice(self._device_factory(False))
 
         if activate_upload:
             self._manager.setActiveDevice(UPLOAD_DEVICE_ID)

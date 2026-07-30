@@ -15,6 +15,12 @@ The protocol layer has been physically tested on a QIDI i-Fast running firmware 
 - persistent success/failure notifications;
 - manual in-Cura printer address and UDP-port configuration.
 
+The development plugin now includes an initial **read-only Cura Monitor view**. It polls the
+printer off Cura's UI thread and displays connection state, printer state, filename when reported,
+byte progress, bed and extruder temperatures, XYZ position, elapsed time, and the last successful
+update. Polling and uploads share a process-wide protocol lock because the legacy UDP protocol has
+plain, unsequenced acknowledgements and cannot safely handle interleaved requests.
+
 The legacy network path is **not content-safe**. A wired-Ethernet upload of
 `PLA_E_Calibration.gcode` completed normally and passed remote byte-size checking, but the file
 copied back from the printer contained a same-length byte splice around lines 595–597. The printer
@@ -28,27 +34,6 @@ for important jobs and for all machine-definition or dual-extruder validation.
 Upload results are announced audibly on Windows. Completion uses the configured
 Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
 attention. Failure notifications remain visible until dismissed.
-
-## Initial QIDI i-Fast machine definition
-
-The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
-
-- a conservative 330 × 250 × 320 mm dual-extrusion build volume;
-- two 0.4 mm extruders using 1.75 mm filament;
-- Marlin-flavor G-code;
-- heated-bed support;
-- minimal start/end G-code without unvalidated XY purge or parking moves;
-- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
-
-The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
-PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
-The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
-and safe limits can be represented without allowing invalid dual-nozzle placement.
-
-A staged validation plan and a small two-part checkerboard model are included in:
-
-- `docs/qidi-ifast-dual-extruder-testing.md`
-- `test_models/dual_checker/`
 
 ## Initial QIDI i-Fast machine definition
 
@@ -175,6 +160,8 @@ The development plugin provides:
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
   starts it automatically.
+- **Monitor** — polls read-only status approximately every two seconds. No motion, temperature,
+  pause, resume, cancel, or print-start controls are exposed in this phase.
 
 After installation, change the address without reinstalling:
 
@@ -182,9 +169,9 @@ After installation, change the address without reinstalling:
 2. Enter the printer hostname or IP address and UDP port `3000`.
 3. Select **Save**.
 
-The plugin validates and atomically saves the configuration, removes the old output devices, and
-registers replacement upload actions immediately. Automatic discovery remains a later enhancement;
-manual address management is the primary configuration path.
+The plugin validates and atomically saves the configuration, removes stale output devices—including
+the old **Upload and Print** action—and registers the upload/monitor device immediately. Automatic
+discovery remains a later enhancement; manual address management is the primary configuration path.
 
 ## Project phases
 
@@ -195,7 +182,8 @@ manual address management is the primary configuration path.
 4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition and test assets
    implemented; physical slicing and printer validation pending.**
 5. Add automatic discovery and multi-interface handling.
-6. Add monitoring and controls after the connection and profile paths are stable.
+6. Add monitoring and controls after the connection and profile paths are stable. **Read-only
+   monitoring implementation started; physical Cura validation remains.**
 
 ## Attribution
 

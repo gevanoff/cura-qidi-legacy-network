@@ -5,6 +5,7 @@ from pathlib import Path
 from UM.Job import Job
 
 from .config import PluginConfig
+from .protocol_lock import QIDI_PROTOCOL_LOCK
 from .qidi_legacy.client import QidiLegacyClient
 from .qidi_legacy.exceptions import QidiUploadError
 
@@ -37,27 +38,28 @@ class QidiUploadJob(Job):
                     "verification cannot detect"
                 )
 
-            with QidiLegacyClient(
-                self._config.host,
-                port=self._config.port,
-                timeout=self._config.timeout,
-                retries=self._config.retries,
-            ) as client:
-                client.connect()
-                remote = client.upload_file(
-                    self._local_path,
-                    remote_filename=self._remote_filename,
-                    progress=self._on_progress,
-                    verify_remote_size=True,
-                )
-                self.setResult(
-                    {
-                        "remote_filename": remote,
-                        "remote_size_verified": True,
-                        "content_verified": False,
-                        "started": False,
-                        "start_response": None,
-                    }
-                )
+            with QIDI_PROTOCOL_LOCK:
+                with QidiLegacyClient(
+                    self._config.host,
+                    port=self._config.port,
+                    timeout=self._config.timeout,
+                    retries=self._config.retries,
+                ) as client:
+                    client.connect()
+                    remote = client.upload_file(
+                        self._local_path,
+                        remote_filename=self._remote_filename,
+                        progress=self._on_progress,
+                        verify_remote_size=True,
+                    )
+                    self.setResult(
+                        {
+                            "remote_filename": remote,
+                            "remote_size_verified": True,
+                            "content_verified": False,
+                            "started": False,
+                            "start_response": None,
+                        }
+                    )
         except Exception as exc:
             self.setError(exc)
