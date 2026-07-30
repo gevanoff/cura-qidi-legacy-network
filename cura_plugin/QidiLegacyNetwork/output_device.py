@@ -4,27 +4,40 @@ import hashlib
 import os
 import re
 import tempfile
+from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import Optional
 
+from PyQt6.QtCore import pyqtProperty, pyqtSignal
+from cura.PrinterOutput.PrinterOutputDevice import (
+    ConnectionState,
+    ConnectionType,
+    PrinterOutputDevice,
+)
 from UM.Logger import Logger
 from UM.Message import Message
 from UM.OutputDevice import OutputDeviceError
-from UM.OutputDevice.OutputDevice import OutputDevice
 from UM.PluginRegistry import PluginRegistry
 
 from .config import PluginConfig
+from .monitor_job import QidiMonitorStatusJob
+from .monitor_snapshot import MonitorSnapshot
 from .notifications import notify_upload_result
 from .upload_job import QidiUploadJob
 
 _FORBIDDEN_FILENAME_CHARS = re.compile(r'["\'´`<>()\[\]?*\\,;:&%#$!/]+')
 
 
-class QidiLegacyOutputDevice(OutputDevice):
+class QidiLegacyOutputDevice(PrinterOutputDevice):
+    monitorChanged = pyqtSignal()
+
     def __init__(self, config: PluginConfig, *, start_after_upload: bool) -> None:
         action = "upload_and_print" if start_after_upload else "upload"
-        super().__init__(f"qidi_legacy_{action}")
+        super().__init__(
+            f"qidi_legacy_{action}",
+            connection_type=ConnectionType.NetworkConnection,
+        )
 
         self._config = config
         self._start_after_upload = start_after_upload
@@ -34,6 +47,15 @@ class QidiLegacyOutputDevice(OutputDevice):
         self._job: Optional[QidiUploadJob] = None
         self._message: Optional[Message] = None
         self._result_message: Optional[Message] = None
+
+        self._monitoring_enabled = True
+        self._monitor_job: Optional[QidiMonitorStatusJob] = None
+        self._monitor_snapshot: Optional[MonitorSnapshot] = None
+        self._monitor_error = ""
+        self._last_update = "Never"
+        self._monitor_view_qml_path = str(Path(__file__).with_name("Monitor.qml"))
+        self.setConnectionText(f"QIDI legacy UDP at {config.host}:{config.port}")
+        self._setAcceptsCommands(False)
 
         if start_after_upload:
             self.setName("QIDI Legacy Network — Upload and Print (Disabled)")
@@ -48,6 +70,9 @@ class QidiLegacyOutputDevice(OutputDevice):
             self.setIconName("save")
             self.setPriority(5)
 
+        super().connect()
+        self._update()
+
     @staticmethod
     def _remote_filename(file_name: Optional[str]) -> str:
         name = Path(file_name or "cura_job").name
@@ -56,6 +81,170 @@ class QidiLegacyOutputDevice(OutputDevice):
         name = _FORBIDDEN_FILENAME_CHARS.sub("_", name)
         name = re.sub(r"\s+", "_", name).strip("._")
         return f"{name or 'cura_job'}.gcode"
+
+    @staticmethod
+    def _temperature_text(current: float | None, target: float | None) -> str:
+        if current is None and target is None:
+            return "—"
+        if current is None:
+            return f"— / {target:.1f} °C"
+        if target is None:
+            return f"{current:.1f} °C"
+        return f"{current:.1f} / {target:.1f} °C"
+
+    @staticmethod
+    def _elapsed_text(seconds: int | None) -> str:
+        if seconds is None or seconds < 0:
+            return "—"
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:d}:{minutes:02d}:{seconds:02d}"
+
+    @pyqtProperty(str, constant=True)
+    def addressText(self) -> str:
+        return f"{self._config.host}:{self._config.port}"
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def connectionStatusText(self) -> str:
+        labels = {
+            ConnectionState.Closed: "Disconnected",
+            ConnectionState.Connecting: "Connecting",
+            ConnectionState.Connected: "Connected",
+            ConnectionState.Busy: "Busy",
+            ConnectionState.Error: "Unavailable",
+        }
+        return labels.get(self.connectionState, "Unknown")
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def printerStateText(self) -> str:
+        if self._monitor_snapshot is None:
+            return "Unknown"
+        return self._monitor_snapshot.printer_state
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def filenameText(self) -> str:
+        if self._monitor_snapshot is None or not self._monitor_snapshot.filename:
+            return "—"
+        return self._monitor_snapshot.filename
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def bedTemperatureText(self) -> str:
+        snapshot = self._monitor_snapshot
+        if snapshot is None:
+            return "—"
+        return self._temperature_text(snapshot.bed_current, snapshot.bed_target)
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def extruder1TemperatureText(self) -> str:
+        snapshot = self._monitor_snapshot
+        if snapshot is None:
+            return "—"
+        return self._temperature_text(
+            snapshot.extruder_current[0],
+            snapshot.extruder_target[0],
+        )
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def extruder2TemperatureText(self) -> str:
+        snapshot = self._monitor_snapshot
+        if snapshot is None:
+            return "—"
+        return self._temperature_text(
+            snapshot.extruder_current[1],
+            snapshot.extruder_target[1],
+        )
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def positionText(self) -> str:
+        snapshot = self._monitor_snapshot
+        if snapshot is None or all(value is None for value in (snapshot.x, snapshot.y, snapshot.z)):
+            return "—"
+
+        def value_text(value: float | None) -> str:
+            return "—" if value is None else f"{value:.2f}"
+
+        return (
+            f"X {value_text(snapshot.x)}  "
+            f"Y {value_text(snapshot.y)}  "
+            f"Z {value_text(snapshot.z)}"
+        )
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def elapsedText(self) -> str:
+        if self._monitor_snapshot is None:
+            return "—"
+        return self._elapsed_text(self._monitor_snapshot.elapsed_seconds)
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def lastUpdateText(self) -> str:
+        return self._last_update
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def monitorErrorText(self) -> str:
+        if not self._monitor_error:
+            return ""
+        return f"Status polling failed: {self._monitor_error}"
+
+    @pyqtProperty(bool, notify=monitorChanged)
+    def hasProgress(self) -> bool:
+        return (
+            self._monitor_snapshot is not None
+            and self._monitor_snapshot.progress_percent is not None
+        )
+
+    @pyqtProperty(float, notify=monitorChanged)
+    def progressPercent(self) -> float:
+        if self._monitor_snapshot is None or self._monitor_snapshot.progress_percent is None:
+            return 0.0
+        return self._monitor_snapshot.progress_percent
+
+    @pyqtProperty(str, notify=monitorChanged)
+    def progressText(self) -> str:
+        snapshot = self._monitor_snapshot
+        if snapshot is None or snapshot.progress_percent is None:
+            return "—"
+        byte_text = ""
+        if snapshot.bytes_printed is not None and snapshot.bytes_total is not None:
+            byte_text = f" ({snapshot.bytes_printed:,} / {snapshot.bytes_total:,} bytes)"
+        return f"{snapshot.progress_percent:.1f}%{byte_text}"
+
+    def _update(self) -> None:
+        if not self._monitoring_enabled or self._monitor_job is not None:
+            return
+        self._monitor_job = QidiMonitorStatusJob(self._config)
+        self._monitor_job.finished.connect(self._on_monitor_finished)
+        self._monitor_job.start()
+
+    def _on_monitor_finished(self, job: QidiMonitorStatusJob) -> None:
+        if job is not self._monitor_job:
+            return
+        self._monitor_job = None
+        if not self._monitoring_enabled:
+            return
+
+        error = job.getError()
+        if error is not None:
+            self._monitor_error = str(error) or type(error).__name__
+            self.setConnectionState(ConnectionState.Error)
+            self.monitorChanged.emit()
+            return
+
+        result = job.getResult()
+        if not isinstance(result, MonitorSnapshot):
+            self._monitor_error = "The status worker returned an invalid result."
+            self.setConnectionState(ConnectionState.Error)
+            self.monitorChanged.emit()
+            return
+
+        self._monitor_snapshot = result
+        self._monitor_error = ""
+        self._last_update = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.setConnectionState(ConnectionState.Connected)
+        self.monitorChanged.emit()
+
+    def close(self) -> None:
+        self._monitoring_enabled = False
+        super().close()
 
     def requestWrite(
         self,
@@ -245,3 +434,4 @@ class QidiLegacyOutputDevice(OutputDevice):
             self.writeSuccess.emit(self)
 
         self._job = None
+        self._update()
