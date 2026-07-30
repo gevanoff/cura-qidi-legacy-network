@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 UPLOAD_DEVICE_ID = "qidi_legacy_upload"
 UPLOAD_AND_PRINT_DEVICE_ID = "qidi_legacy_upload_and_print"
+NETWORK_CONNECTION_TYPE = 2
 
 # Only the upload-only device is exposed. It is also a PrinterOutputDevice, so the same
 # long-lived instance supplies Cura's read-only Monitor view.
@@ -43,6 +44,24 @@ def machine_supports_gcode(stack: Any) -> bool:
         return True
     formats = {item.strip() for item in str(raw_formats).split(";") if item.strip()}
     return "text/x-gcode" in formats
+
+
+def associate_network_connection(stack: Any) -> None:
+    """Mark the active Cura machine as configured for this LAN output device.
+
+    Cura's Monitor empty-state logic reads the machine stack's network metadata separately
+    from the registered PrinterOutputDevice. Set both fields so existing i-Fast machine
+    instances created before the definition was corrected become monitorable immediately.
+    """
+    setter = getattr(stack, "setMetaDataEntry", None)
+    if callable(setter):
+        setter("supports_network_connection", True)
+
+    add_connection = getattr(stack, "addConfiguredConnectionType", None)
+    if callable(add_connection):
+        add_connection(NETWORK_CONNECTION_TYPE)
+    elif callable(setter):
+        setter("connection_type", str(NETWORK_CONNECTION_TYPE))
 
 
 class OutputDeviceRegistrar:
@@ -89,6 +108,8 @@ class OutputDeviceRegistrar:
                 machine_name(stack),
             )
             return False
+
+        associate_network_connection(stack)
 
         # Remove the historical automatic-start device, but preserve the current upload/monitor
         # device across routine Cura state-change signals. Recreating it would repeatedly reset
