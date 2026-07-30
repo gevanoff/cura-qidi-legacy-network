@@ -1,5 +1,6 @@
 from cura_plugin.QidiLegacyNetwork.registration import (
     DEVICE_IDS,
+    NETWORK_CONNECTION_TYPE,
     UPLOAD_AND_PRINT_DEVICE_ID,
     UPLOAD_DEVICE_ID,
     OutputDeviceRegistrar,
@@ -9,14 +10,21 @@ from cura_plugin.QidiLegacyNetwork.registration import (
 
 class FakeStack:
     def __init__(self, formats="text/x-gcode") -> None:
-        self.formats = formats
+        self.metadata = {"file_formats": formats}
+        self.connection_types = []
 
     def getName(self):
         return "QIDI i-Fast Temporary"
 
-    def getMetaDataEntry(self, key):
-        assert key == "file_formats"
-        return self.formats
+    def getMetaDataEntry(self, key, default=None):
+        return self.metadata.get(key, default)
+
+    def setMetaDataEntry(self, key, value):
+        self.metadata[key] = value
+
+    def addConfiguredConnectionType(self, connection_type):
+        if connection_type not in self.connection_types:
+            self.connection_types.append(connection_type)
 
 
 class FakeApp:
@@ -30,9 +38,13 @@ class FakeApp:
 class FakeDevice:
     def __init__(self, device_id) -> None:
         self._device_id = device_id
+        self.closed = False
 
     def getId(self):
         return self._device_id
+
+    def close(self):
+        self.closed = True
 
 
 class FakeManager:
@@ -79,17 +91,20 @@ def test_registration_waits_for_active_machine_stack() -> None:
     assert manager.devices == {}
 
 
-def test_registration_exposes_only_upload_and_removes_stale_automatic_start() -> None:
+def test_registration_exposes_only_upload_and_associates_network_monitoring() -> None:
     manager = FakeManager()
-    manager.devices[UPLOAD_DEVICE_ID] = FakeDevice(UPLOAD_DEVICE_ID)
-    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
+    existing_upload = FakeDevice(UPLOAD_DEVICE_ID)
+    stale_start = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
+    manager.devices[UPLOAD_DEVICE_ID] = existing_upload
+    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = stale_start
+    stack = FakeStack("application/x-3mf;text/x-gcode")
     logs = []
 
     def log(*args):
         logs.append(args)
 
     registrar = OutputDeviceRegistrar(
-        FakeApp(FakeStack("application/x-3mf;text/x-gcode")),
+        FakeApp(stack),
         manager,
         device_factory,
         log,
@@ -98,14 +113,20 @@ def test_registration_exposes_only_upload_and_removes_stale_automatic_start() ->
     assert registrar.sync() is True
     assert tuple(manager.devices) == DEVICE_IDS
     assert UPLOAD_AND_PRINT_DEVICE_ID not in manager.devices
+    assert stale_start.closed is True
     assert manager.getActiveDevice().getId() == UPLOAD_DEVICE_ID
+    assert manager.getOutputDevice(UPLOAD_DEVICE_ID) is existing_upload
+    assert stack.metadata["supports_network_connection"] is True
+    assert stack.connection_types == [NETWORK_CONNECTION_TYPE]
     assert any("success=%s" in entry[1] and entry[-1] is True for entry in logs)
 
 
 def test_registration_removes_devices_for_non_gcode_machine() -> None:
     manager = FakeManager()
-    manager.devices[UPLOAD_DEVICE_ID] = FakeDevice(UPLOAD_DEVICE_ID)
-    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
+    upload = FakeDevice(UPLOAD_DEVICE_ID)
+    stale_start = FakeDevice(UPLOAD_AND_PRINT_DEVICE_ID)
+    manager.devices[UPLOAD_DEVICE_ID] = upload
+    manager.devices[UPLOAD_AND_PRINT_DEVICE_ID] = stale_start
     registrar = OutputDeviceRegistrar(
         FakeApp(FakeStack("application/x-3mf")),
         manager,
@@ -115,6 +136,8 @@ def test_registration_removes_devices_for_non_gcode_machine() -> None:
 
     assert registrar.sync() is False
     assert manager.devices == {}
+    assert upload.closed is True
+    assert stale_start.closed is True
 
 
 def test_missing_file_format_metadata_is_compatible() -> None:
