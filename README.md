@@ -1,7 +1,7 @@
 # Cura QIDI Legacy Network
 
 A clean, testable implementation of the legacy QIDI UDP network protocol, plus a Cura 5
-output-device plugin targeting printers such as the **QIDI i-Fast**.
+output-device plugin and development machine definitions targeting the **QIDI i-Fast**.
 
 ## Current status
 
@@ -28,6 +28,48 @@ for important jobs and for all machine-definition or dual-extruder validation.
 Upload results are announced audibly on Windows. Completion uses the configured
 Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
 attention. Failure notifications remain visible until dismissed.
+
+## Initial QIDI i-Fast machine definition
+
+The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
+
+- a conservative 330 × 250 × 320 mm dual-extrusion build volume;
+- two 0.4 mm extruders using 1.75 mm filament;
+- Marlin-flavor G-code;
+- heated-bed support;
+- minimal start/end G-code without unvalidated XY purge or parking moves;
+- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
+
+The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
+PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
+The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
+and safe limits can be represented without allowing invalid dual-nozzle placement.
+
+A staged validation plan and a small two-part checkerboard model are included in:
+
+- `docs/qidi-ifast-dual-extruder-testing.md`
+- `test_models/dual_checker/`
+
+## Initial QIDI i-Fast machine definition
+
+The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
+
+- a conservative 330 × 250 × 320 mm dual-extrusion build volume;
+- two 0.4 mm extruders using 1.75 mm filament;
+- Marlin-flavor G-code;
+- heated-bed support;
+- minimal start/end G-code without unvalidated XY purge or parking moves;
+- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
+
+The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
+PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
+The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
+and safe limits can be represented without allowing invalid dual-nozzle placement.
+
+A staged validation plan and a small two-part checkerboard model are included in:
+
+- `docs/qidi-ifast-dual-extruder-testing.md`
+- `test_models/dual_checker/`
 
 ## Network transport reliability
 
@@ -119,13 +161,17 @@ python scripts/install_cura_plugin.py \
   --port 3000
 ```
 
-The installer creates:
+The installer creates or updates:
 
 ```text
 C:\Users\name\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
+C:\Users\name\AppData\Roaming\cura\5.13\definitions\qidi_ifast.def.json
+C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_0.def.json
+C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_1.def.json
 ```
 
-Restart Cura, slice a model, and open the output-action dropdown. The plugin provides:
+Restart Cura, add **QIDI Tech > QIDI i-Fast**, slice a model, and open the output-action dropdown.
+The development plugin provides:
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
   starts it automatically.
@@ -136,17 +182,20 @@ After installation, change the address without reinstalling:
 2. Enter the printer hostname or IP address and UDP port `3000`.
 3. Select **Save**.
 
-The plugin atomically saves the configuration, removes stale output devices—including the old
-**Upload and Print** action—and registers the upload-only device immediately.
+The plugin validates and atomically saves the configuration, removes the old output devices, and
+registers replacement upload actions immediately. Automatic discovery remains a later enhancement;
+manual address management is the primary configuration path.
 
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
-2. Implement Cura 5.13 network upload. **Operational, but not content-safe.**
-3. Add in-Cura address management. **Implemented and physically validated.**
-4. Add the i-Fast machine definition and dual-extruder profile. **In progress; use USB for tests.**
-5. Investigate whether the legacy protocol can be made content-verifiable.
-6. Add monitoring, controls, and optional discovery after the core paths are stable.
+2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
+   a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
+3. Add in-Cura address management. **Complete and physically validated.**
+4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition and test assets
+   implemented; physical slicing and printer validation pending.**
+5. Add automatic discovery and multi-interface handling.
+6. Add monitoring and controls after the connection and profile paths are stable.
 
 ## Attribution
 

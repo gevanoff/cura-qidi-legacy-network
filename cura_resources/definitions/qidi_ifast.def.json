@@ -1,0 +1,42 @@
+{
+    "version": 2,
+    "name": "QIDI i-Fast",
+    "inherits": "fdmprinter",
+    "metadata": {
+        "type": "machine",
+        "author": "Cura QIDI Legacy Network project",
+        "manufacturer": "QIDI Tech",
+        "setting_version": 27,
+        "visible": true,
+        "file_formats": "text/x-gcode",
+        "has_materials": true,
+        "has_variants": false,
+        "has_machine_quality": false,
+        "preferred_material": "generic_pla",
+        "preferred_quality_type": "normal",
+        "supports_usb_connection": false,
+        "supports_network_connection": false,
+        "machine_extruder_trains": {
+            "0": "qidi_ifast_extruder_0",
+            "1": "qidi_ifast_extruder_1"
+        }
+    },
+    "overrides": {
+        "machine_name": { "default_value": "QIDI i-Fast" },
+        "machine_width": { "default_value": 330 },
+        "machine_depth": { "default_value": 250 },
+        "machine_height": { "default_value": 320 },
+        "machine_shape": { "default_value": "rectangular" },
+        "machine_center_is_zero": { "default_value": false },
+        "machine_heated_bed": { "default_value": true },
+        "machine_extruder_count": { "default_value": 2 },
+        "machine_gcode_flavor": { "default_value": "Marlin" },
+        "material_diameter": { "default_value": 1.75 },
+        "machine_start_gcode": {
+            "default_value": "G21 ; millimeters\nG90 ; absolute positioning\nM82 ; absolute extrusion\nG28 ; home all axes\nG92 E0 ; reset active extruder"
+        },
+        "machine_end_gcode": {
+            "default_value": "M104 T0 S0 ; turn off extruder 1\nM104 T1 S0 ; turn off extruder 2\nM140 S0 ; turn off bed\nM107 ; turn off fan\nG91 ; relative positioning\nG1 E-2 F300 ; retract\nG1 Z10 F1200 ; raise nozzle\nG90 ; absolute positioning\nM84 ; disable steppers"
+        }
+    }
+}

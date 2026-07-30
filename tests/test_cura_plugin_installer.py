@@ -3,7 +3,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.install_cura_plugin import build_zip, install_plugin, stage_plugin
+from scripts.install_cura_plugin import (
+    build_zip,
+    install_machine_resources,
+    install_plugin,
+    stage_plugin,
+)
 
 
 def test_stage_plugin_vendors_protocol_and_configuration(tmp_path: Path) -> None:
@@ -22,10 +27,27 @@ def test_stage_plugin_vendors_protocol_and_configuration(tmp_path: Path) -> None
     }
 
 
-def test_install_plugin_uses_cura_plugins_directory(tmp_path: Path) -> None:
-    installed = install_plugin(tmp_path / "5.13", host="printer.local", port=3000)
-    assert installed == tmp_path / "5.13" / "plugins" / "QidiLegacyNetwork"
+def test_install_machine_resources_uses_cura_resource_directories(tmp_path: Path) -> None:
+    installed = install_machine_resources(tmp_path / "5.13")
+
+    expected = {
+        tmp_path / "5.13" / "definitions" / "qidi_ifast.def.json",
+        tmp_path / "5.13" / "extruders" / "qidi_ifast_extruder_0.def.json",
+        tmp_path / "5.13" / "extruders" / "qidi_ifast_extruder_1.def.json",
+    }
+    assert set(installed) == expected
+    assert all(path.is_file() for path in expected)
+
+
+def test_install_plugin_uses_cura_plugins_and_resource_directories(tmp_path: Path) -> None:
+    cura_config = tmp_path / "5.13"
+    installed = install_plugin(cura_config, host="printer.local", port=3000)
+
+    assert installed == cura_config / "plugins" / "QidiLegacyNetwork"
     assert installed.is_dir()
+    assert (cura_config / "definitions" / "qidi_ifast.def.json").is_file()
+    assert (cura_config / "extruders" / "qidi_ifast_extruder_0.def.json").is_file()
+    assert (cura_config / "extruders" / "qidi_ifast_extruder_1.def.json").is_file()
 
 
 def test_build_zip_contains_single_plugin_root(tmp_path: Path) -> None:
@@ -41,6 +63,7 @@ def test_build_zip_contains_single_plugin_root(tmp_path: Path) -> None:
     assert "QidiLegacyNetwork/extension.py" in names
     assert "QidiLegacyNetwork/qidi_legacy/client.py" in names
     assert "QidiLegacyNetwork/config.json" in names
+    assert not any(name.startswith("definitions/") for name in names)
 
 
 def test_stage_plugin_rejects_invalid_configuration(tmp_path: Path) -> None:

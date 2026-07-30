@@ -1,0 +1,170 @@
+solid qidi_dual_checker_b
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 10 10 0
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 20 10 0
+      vertex 20 0 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 2
+      vertex 20 0 2
+      vertex 20 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 2
+      vertex 20 10 2
+      vertex 10 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 20 0 0
+      vertex 20 0 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 20 0 2
+      vertex 10 0 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 10 0
+      vertex 10 10 2
+      vertex 20 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 10 0
+      vertex 20 10 2
+      vertex 20 10 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 10 0 2
+      vertex 10 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 0 0
+      vertex 10 10 2
+      vertex 10 10 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 20 0 0
+      vertex 20 10 0
+      vertex 20 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 20 0 0
+      vertex 20 10 2
+      vertex 20 0 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 0 20 0
+      vertex 10 20 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 10 20 0
+      vertex 10 10 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 2
+      vertex 10 10 2
+      vertex 10 20 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 2
+      vertex 10 20 2
+      vertex 0 20 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 10 10 0
+      vertex 10 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 10 10 2
+      vertex 0 10 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 20 0
+      vertex 0 20 2
+      vertex 10 20 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 20 0
+      vertex 10 20 2
+      vertex 10 20 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 0 10 2
+      vertex 0 20 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 0 10 0
+      vertex 0 20 2
+      vertex 0 20 0
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 10 0
+      vertex 10 20 0
+      vertex 10 20 2
+    endloop
+  endfacet
+  facet normal 0 0 0
+    outer loop
+      vertex 10 10 0
+      vertex 10 20 2
+      vertex 10 10 2
+    endloop
+  endfacet
+endsolid qidi_dual_checker_b
