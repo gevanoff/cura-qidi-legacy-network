@@ -1,7 +1,7 @@
 {
   "name": "QIDI Legacy Network",
   "author": "Gabe Evanoff",
-  "description": "Upload G-code and monitor status on legacy QIDI network printers, including the QIDI i-Fast.",
-  "version": "0.4.0-dev",
+  "description": "Upload G-code and monitor status on legacy QIDI network printers with exclusive-access safeguards.",
+  "version": "0.5.0-dev",
   "api": 8
 }
