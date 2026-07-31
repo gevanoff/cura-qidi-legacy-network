@@ -32,8 +32,10 @@ class _PrinterAddressDialog(QDialog):
 
         explanation = QLabel(
             "Enter the printer's wired Ethernet address when available. On the i-Fast, "
-            "select the plug symbol and check or re-check Start Operation. Network uploads "
-            "receive a remote byte-count check only; use direct USB for important jobs."
+            "select the plug symbol and check or re-check Start Operation. The legacy UDP "
+            "service requires exclusive access: pause Cura communication before using QIDI "
+            "Print, qidi-legacy, or another client. Network uploads receive a remote byte-count "
+            "check only; use direct USB for important jobs."
         )
         explanation.setWordWrap(True)
 
@@ -88,9 +90,51 @@ class QidiLegacyNetworkExtension(Extension):
         self._plugin = plugin
         self._configuration_dialog: _PrinterAddressDialog | None = None
         self.setMenuName("QIDI Legacy Network")
+        self.addMenuItem(
+            "Pause Cura Communication for External Tools",
+            self._pause_communication,
+        )
+        self.addMenuItem("Resume Cura Communication", self._resume_communication)
         self.addMenuItem("Configure Printer Address…", self._configure_printer)
         self.addMenuItem("Refresh Output Devices", self._refresh_output_devices)
         self.addMenuItem("Show Connection", self._show_connection)
+
+    @staticmethod
+    def _show_action_result(text: str, *, title: str, error: bool = False) -> None:
+        Message(
+            text,
+            lifetime=0 if error else 30,
+            dismissable=True,
+            use_inactivity_timer=not error,
+            title=title,
+            message_type=(
+                Message.MessageType.ERROR if error else Message.MessageType.POSITIVE
+            ),
+        ).show()
+
+    def _pause_communication(self) -> None:
+        try:
+            text = self._plugin.pause_communication()
+        except Exception as exc:
+            self._show_action_result(
+                str(exc) or type(exc).__name__,
+                title="QIDI Communication Pause Failed",
+                error=True,
+            )
+            return
+        self._show_action_result(text, title="QIDI Communication Paused")
+
+    def _resume_communication(self) -> None:
+        try:
+            text = self._plugin.resume_communication()
+        except Exception as exc:
+            self._show_action_result(
+                str(exc) or type(exc).__name__,
+                title="QIDI Communication Resume Failed",
+                error=True,
+            )
+            return
+        self._show_action_result(text, title="QIDI Communication Resumed")
 
     def _configure_printer(self) -> None:
         try:
@@ -135,6 +179,9 @@ class QidiLegacyNetworkExtension(Extension):
 
     def _show_connection(self) -> None:
         Message(
-            f"Configured printer: {self._plugin.configuration_summary()}",
+            (
+                f"Configured printer: {self._plugin.configuration_summary()}\n"
+                f"Cura communication: {self._plugin.communication_summary()}"
+            ),
             title="QIDI Legacy Network",
         ).show()
