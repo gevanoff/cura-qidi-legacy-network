@@ -57,11 +57,17 @@ class ExclusiveQidiLegacyOutputDevice(QidiLegacyOutputDevice):
         self._communication_state.pause_for_external_access()
         self._monitor_error = ""
         self.monitorChanged.emit()
+        if self._communication_state.upload_active:
+            return (
+                "The current Cura upload still has exclusive access. External tools must remain "
+                "closed until the upload finishes and Monitor shows 'Paused for external access'."
+            )
         if self._monitor_job is not None:
             return (
                 "Cura will stop QIDI communication after the current status request finishes. "
                 "Wait until Monitor shows 'Paused for external access' before using another client."
             )
+        self.setConnectionState(ConnectionState.Closed)
         return (
             "Cura QIDI communication is paused. QIDI Print, qidi-legacy, or another client may "
             "now use the printer exclusively."
@@ -91,6 +97,11 @@ class ExclusiveQidiLegacyOutputDevice(QidiLegacyOutputDevice):
             # The request may have started just before a manual pause or upload. Discard its
             # result and, critically, do not schedule another request.
             self._monitor_job = None
+            if (
+                self._communication_state.manual_pause
+                and not self._communication_state.upload_active
+            ):
+                self.setConnectionState(ConnectionState.Closed)
             self.monitorChanged.emit()
             return
         super()._on_monitor_finished(job)
