@@ -46,6 +46,13 @@ Component
                     Layout.leftMargin: UM.Theme.getSize("default_margin").width
                     Layout.rightMargin: UM.Theme.getSize("default_margin").width
 
+                    UM.Label { text: "Cura communication" }
+                    UM.Label
+                    {
+                        text: OutputDevice.communicationStateText
+                        font: UM.Theme.getFont("medium")
+                    }
+
                     UM.Label { text: "Connection" }
                     UM.Label { text: OutputDevice.connectionStatusText; font: UM.Theme.getFont("medium") }
 
@@ -72,6 +79,18 @@ Component
 
                     UM.Label { text: "Last update" }
                     UM.Label { text: OutputDevice.lastUpdateText }
+                }
+
+                UM.Label
+                {
+                    text: OutputDevice.communicationNoticeText
+                    wrapMode: Text.WordWrap
+                    color: OutputDevice.communicationPaused
+                        ? UM.Theme.getColor("error")
+                        : UM.Theme.getColor("text_inactive")
+                    Layout.fillWidth: true
+                    Layout.leftMargin: UM.Theme.getSize("default_margin").width
+                    Layout.rightMargin: UM.Theme.getSize("default_margin").width
                 }
 
                 ColumnLayout
