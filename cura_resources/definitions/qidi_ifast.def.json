@@ -15,7 +15,7 @@
         "preferred_material": "generic_pla",
         "preferred_quality_type": "normal",
         "supports_usb_connection": false,
-        "supports_network_connection": false,
+        "supports_network_connection": true,
         "machine_extruder_trains": {
             "0": "qidi_ifast_extruder_0",
             "1": "qidi_ifast_extruder_1"

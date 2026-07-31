@@ -13,6 +13,7 @@ def test_machine_definition_declares_two_extruders_and_dual_build_volume() -> No
 
     assert definition["version"] == 2
     assert definition["inherits"] == "fdmprinter"
+    assert definition["metadata"]["supports_network_connection"] is True
     assert definition["metadata"]["machine_extruder_trains"] == {
         "0": "qidi_ifast_extruder_0",
         "1": "qidi_ifast_extruder_1",
