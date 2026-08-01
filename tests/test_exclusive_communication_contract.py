@@ -18,7 +18,7 @@ def test_output_device_suspends_polling_around_entire_upload() -> None:
     update_start = source.index("    def _update(self) -> None:")
     update_end = source.index("    def _on_monitor_finished", update_start)
     update_body = source[update_start:update_end]
-    assert "if not self._communication_state.polling_allowed:" in update_body
+    assert "state is None or not state.polling_allowed" in update_body
 
     request_start = source.index("    def requestWrite")
     request_end = source.index("    def _on_finished", request_start)
@@ -30,9 +30,11 @@ def test_output_device_suspends_polling_around_entire_upload() -> None:
     assert "self._update()" in finished_body
 
 
-def test_monitor_exposes_exclusive_access_state() -> None:
+def test_monitor_explains_exclusive_access_without_subclass_qt_properties() -> None:
     qml = (PLUGIN_ROOT / "Monitor.qml").read_text(encoding="utf-8")
 
-    assert "OutputDevice.communicationStateText" in qml
-    assert "OutputDevice.communicationNoticeText" in qml
-    assert "OutputDevice.communicationPaused" in qml
+    assert "requires exclusive access" in qml
+    assert "Pause Cura Communication for External Tools" in qml
+    assert "OutputDevice.communicationStateText" not in qml
+    assert "OutputDevice.communicationNoticeText" not in qml
+    assert "OutputDevice.communicationPaused" not in qml
