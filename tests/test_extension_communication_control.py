@@ -2,7 +2,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EXTENSION = ROOT / "cura_plugin" / "QidiLegacyNetwork" / "extension.py"
+PLUGIN_ROOT = ROOT / "cura_plugin" / "QidiLegacyNetwork"
+EXTENSION = PLUGIN_ROOT / "extension.py"
+PLUGIN = PLUGIN_ROOT / "plugin.py"
 
 
 def test_extension_uses_one_communication_menu_item() -> None:
@@ -17,6 +19,14 @@ def test_communication_dialog_exposes_checked_enabled_state() -> None:
     source = EXTENSION.read_text(encoding="utf-8")
 
     assert 'QCheckBox("Cura monitoring and uploads enabled")' in source
-    assert "self._plugin.pause_communication()" in source
-    assert "self._plugin.resume_communication()" in source
+    assert "self._enabled.setChecked(plugin.communication_enabled())" in source
+    assert "self._plugin.set_communication_enabled(self._enabled.isChecked())" in source
     assert 'Current state: {summary}' in source
+
+
+def test_plugin_reads_manual_pause_as_the_persistent_checkbox_state() -> None:
+    source = PLUGIN.read_text(encoding="utf-8")
+
+    assert "def communication_enabled(self) -> bool:" in source
+    assert 'getattr(device, "manually_paused", False)' in source
+    assert "def set_communication_enabled(self, enabled: bool) -> str:" in source
