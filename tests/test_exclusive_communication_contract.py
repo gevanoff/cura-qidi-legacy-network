@@ -30,6 +30,32 @@ def test_output_device_suspends_polling_around_entire_upload() -> None:
     assert "self._update()" in finished_body
 
 
+def test_duplicate_upload_uses_cura_output_device_errors() -> None:
+    source = (PLUGIN_ROOT / "exclusive_output_device.py").read_text(encoding="utf-8")
+
+    request_start = source.index("    def requestWrite")
+    request_end = source.index("    def _on_finished", request_start)
+    request_body = source[request_start:request_end]
+
+    assert "if state.upload_active:" in request_body
+    assert "OutputDeviceError.DeviceBusyError()" in request_body
+    assert "except RuntimeError as exc:" in request_body
+    assert "OutputDeviceError.WriteRequestFailedError(str(exc))" in request_body
+
+
+def test_initial_pause_suppresses_first_monitor_request() -> None:
+    source = (PLUGIN_ROOT / "exclusive_output_device.py").read_text(encoding="utf-8")
+
+    init_start = source.index("    def __init__")
+    init_end = source.index("    def _state", init_start)
+    init_body = source[init_start:init_end]
+
+    assert "initially_paused: bool = False" in init_body
+    assert "state.pause_for_external_access()" in init_body
+    assert "if initially_paused:" in init_body
+    assert "else:\n            self._update()" in init_body
+
+
 def test_monitor_explains_exclusive_access_without_subclass_qt_properties() -> None:
     qml = (PLUGIN_ROOT / "Monitor.qml").read_text(encoding="utf-8")
 
