@@ -65,6 +65,7 @@ def test_normal_quality_profile_defines_conservative_first_layer_baseline() -> N
     assert values.getfloat("layer_height") == 0.20
     assert values.getfloat("layer_height_0") == 0.24
     assert values.getfloat("speed_layer_0") == 18
+    assert values.getfloat("skirt_brim_speed") == 18
     assert values.getfloat("initial_layer_line_width_factor") == 120
     assert values["adhesion_type"] == "brim"
     assert values.getfloat("brim_width") == 8
@@ -77,6 +78,7 @@ def test_generic_pla_overlay_pins_first_layer_temperatures() -> None:
     )
 
     assert profile["general"]["definition"] == "qidi_ifast"
+    assert profile["general"]["name"] == "0.20 mm Normal"
     assert profile["metadata"]["material"] == "generic_pla"
     assert profile["metadata"]["quality_type"] == "normal"
     assert profile["metadata"].getint("setting_version") == 27
