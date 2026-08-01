@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PLUGIN_SOURCE = REPO_ROOT / "cura_plugin" / "QidiLegacyNetwork"
 PROTOCOL_SOURCE = REPO_ROOT / "src" / "qidi_legacy"
 CURA_RESOURCES_SOURCE = REPO_ROOT / "cura_resources"
-RESOURCE_DIRECTORIES = ("definitions", "extruders")
+RESOURCE_DIRECTORIES = ("definitions", "extruders", "quality")
 
 
 def stage_plugin(destination: Path, *, host: str, port: int) -> Path:
@@ -53,17 +53,17 @@ def stage_plugin(destination: Path, *, host: str, port: int) -> Path:
 
 
 def install_machine_resources(cura_config: Path) -> list[Path]:
-    """Install the custom i-Fast machine and extruder definitions into Cura's config tree."""
+    """Install i-Fast definitions and nested quality profiles into Cura's config tree."""
 
     installed: list[Path] = []
     for directory_name in RESOURCE_DIRECTORIES:
         source_directory = CURA_RESOURCES_SOURCE / directory_name
         destination_directory = cura_config / directory_name
-        destination_directory.mkdir(parents=True, exist_ok=True)
-        for source_path in sorted(source_directory.glob("*")):
+        for source_path in sorted(source_directory.rglob("*")):
             if not source_path.is_file():
                 continue
-            destination_path = destination_directory / source_path.name
+            destination_path = destination_directory / source_path.relative_to(source_directory)
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source_path, destination_path)
             installed.append(destination_path)
     return installed
@@ -112,7 +112,10 @@ def main() -> int:
     if args.cura_config is not None:
         result = install_plugin(args.cura_config, host=args.host, port=args.port)
         print(f"Installed QIDI Legacy Network plugin at: {result}")
-        print("Installed QIDI i-Fast definitions in the Cura configuration resource folders.")
+        print(
+            "Installed QIDI i-Fast definitions and quality profiles in the Cura "
+            "configuration resource folders."
+        )
     else:
         result = build_zip(args.zip_out, host=args.host, port=args.port)
         print(f"Built QIDI Legacy Network plugin ZIP at: {result}")
