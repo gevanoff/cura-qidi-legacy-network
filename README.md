@@ -15,11 +15,11 @@ The protocol layer has been physically tested on a QIDI i-Fast running firmware 
 - persistent success/failure notifications;
 - manual in-Cura printer address and UDP-port configuration.
 
-The development plugin now includes an initial **read-only Cura Monitor view**. It polls the
-printer off Cura's UI thread and displays connection state, printer state, filename when reported,
-byte progress, bed and extruder temperatures, XYZ position, elapsed time, and the last successful
-update. Polling and uploads share a process-wide protocol lock because the legacy UDP protocol has
-plain, unsequenced acknowledgements and cannot safely handle interleaved requests.
+The development plugin includes a **read-only Cura Monitor view**. It polls the printer off Cura's
+UI thread and displays connection state, printer state, filename when reported, byte progress, bed
+and extruder temperatures, XYZ position, elapsed time, and the last successful update. Cura grants
+uploads exclusive access and suppresses Monitor polling until the upload finishes because the
+legacy UDP service cannot safely perform two operations at once.
 
 The legacy network path is **not content-safe**. A wired-Ethernet upload of
 `PLA_E_Calibration.gcode` completed normally and passed remote byte-size checking, but the file
@@ -35,26 +35,36 @@ Upload results are announced audibly on Windows. Completion uses the configured
 Information/Asterisk sound; failure uses the Critical Stop/Hand sound and requests taskbar
 attention. Failure notifications remain visible until dismissed.
 
-## Initial QIDI i-Fast machine definition
+## QIDI i-Fast machine and quality definitions
 
-The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
+The development installer adds a visible **QIDI Tech > QIDI i-Fast** Cura machine with:
 
 - a conservative 330 × 250 × 320 mm dual-extrusion build volume;
 - two 0.4 mm extruders using 1.75 mm filament;
 - Marlin-flavor G-code;
 - heated-bed support;
 - minimal start/end G-code without unvalidated XY purge or parking moves;
-- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
+- zero slicer-side nozzle offsets while firmware calibration ownership is tested;
+- a Git-managed **0.20 mm Normal** quality profile;
+- a Generic PLA overlay for explicit nozzle and bed temperatures.
 
-The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
-PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
-The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
-and safe limits can be represented without allowing invalid dual-nozzle placement.
+The initial adhesion baseline uses a 0.24 mm first layer, 18 mm/s first-layer and brim speed,
+120% first-layer line width, an 8 mm brim, and zero initial fan. Generic PLA uses a 200 °C nozzle,
+a 65 °C initial bed, and a 60 °C regular bed. These values require physical first-layer validation
+before they are treated as calibrated printer defaults.
 
-A staged validation plan and a small two-part checkerboard model are included in:
+Cura user-level overrides can take precedence over the Git-managed files. The installer does not
+delete those overrides; select the profile and deliberately discard stale custom changes when the
+repository baseline should apply.
 
+Profile details and the validation procedure are documented in:
+
+- `docs/qidi-ifast-quality-profiles.md`
 - `docs/qidi-ifast-dual-extruder-testing.md`
 - `test_models/dual_checker/`
+
+The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
+and safe limits can be represented without allowing invalid dual-nozzle placement.
 
 ## Network transport reliability
 
@@ -153,15 +163,21 @@ C:\Users\name\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
 C:\Users\name\AppData\Roaming\cura\5.13\definitions\qidi_ifast.def.json
 C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_0.def.json
 C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_1.def.json
+C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal.inst.cfg
+C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal_generic_pla.inst.cfg
 ```
 
-Restart Cura, add **QIDI Tech > QIDI i-Fast**, slice a model, and open the output-action dropdown.
-The development plugin provides:
+Restart Cura, add **QIDI Tech > QIDI i-Fast**, select **0.20 mm Normal**, slice a model, and open the
+output-action dropdown. The development plugin provides:
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
   starts it automatically.
 - **Monitor** — polls read-only status approximately every two seconds. No motion, temperature,
-  pause, resume, cancel, or print-start controls are exposed in this phase.
+  pause, resume, cancel, or print-start controls are exposed.
+
+Before using QIDI Print, `qidi-legacy`, or another external client, open
+**Extensions > QIDI Legacy Network > Cura Communication…** and clear
+**Cura monitoring and uploads enabled**. Re-enable it after the external operation finishes.
 
 After installation, change the address without reinstalling:
 
@@ -176,14 +192,14 @@ discovery remains a later enhancement; manual address management is the primary 
 ## Project phases
 
 1. Verify commands and responses against the physical i-Fast. **Complete.**
-2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
-   a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
+2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet;
+   automatic print start remains disabled.**
 3. Add in-Cura address management. **Complete and physically validated.**
-4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition and test assets
-   implemented; physical slicing and printer validation pending.**
+4. Add the i-Fast machine definition and dual-extruder profiles. **Machine definition and first
+   Git-managed Generic PLA profile implemented; physical first-layer validation pending.**
 5. Add automatic discovery and multi-interface handling.
 6. Add monitoring and controls after the connection and profile paths are stable. **Read-only
-   monitoring implementation started; physical Cura validation remains.**
+   monitoring and exclusive Cura communication are physically validated.**
 
 ## Attribution
 
