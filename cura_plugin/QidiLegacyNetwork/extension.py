@@ -17,8 +17,6 @@ from UM.Message import Message
 class _CommunicationDialog(QDialog):
     """Show and change Cura's persistent QIDI communication state."""
 
-    _PAUSED_STATE = "Paused for external access"
-
     def __init__(self, plugin) -> None:
         super().__init__()
         self._plugin = plugin
@@ -28,7 +26,7 @@ class _CommunicationDialog(QDialog):
 
         summary = plugin.communication_summary()
         self._enabled = QCheckBox("Cura monitoring and uploads enabled")
-        self._enabled.setChecked(summary != self._PAUSED_STATE)
+        self._enabled.setChecked(plugin.communication_enabled())
 
         self._status = QLabel(f"Current state: {summary}")
         self._status.setWordWrap(True)
@@ -64,19 +62,8 @@ class _CommunicationDialog(QDialog):
         self._error.show()
 
     def _save(self) -> None:
-        summary = self._plugin.communication_summary()
-        currently_enabled = summary != self._PAUSED_STATE
-        requested_enabled = self._enabled.isChecked()
-
         try:
-            if requested_enabled and not currently_enabled:
-                text = self._plugin.resume_communication()
-            elif not requested_enabled and currently_enabled:
-                text = self._plugin.pause_communication()
-            elif requested_enabled:
-                text = "Cura monitoring and uploads are already enabled."
-            else:
-                text = "Cura monitoring and uploads are already paused for external access."
+            text = self._plugin.set_communication_enabled(self._enabled.isChecked())
         except Exception as exc:
             self._show_error(str(exc) or type(exc).__name__)
             return
