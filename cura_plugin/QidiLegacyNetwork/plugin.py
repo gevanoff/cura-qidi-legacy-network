@@ -129,6 +129,31 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
             raise RuntimeError("The QIDI output device is not available.")
         return device.resume_communication()
 
+    def communication_enabled(self) -> bool:
+        """Return the persistent user-controlled communication state.
+
+        Upload-exclusive mode temporarily suppresses monitoring but does not itself clear this
+        setting. A manual pause does, including when requested during an active upload.
+        """
+
+        device = self._managed_output_device()
+        if device is None:
+            self.refresh_now()
+            device = self._managed_output_device()
+        if device is None:
+            raise RuntimeError("The QIDI output device is not available.")
+        return not bool(getattr(device, "manually_paused", False))
+
+    def set_communication_enabled(self, enabled: bool) -> str:
+        current = self.communication_enabled()
+        if enabled == current:
+            if enabled:
+                return "Cura monitoring and uploads are already enabled."
+            return "Cura monitoring and uploads are already paused for external access."
+        if enabled:
+            return self.resume_communication()
+        return self.pause_communication()
+
     def communication_summary(self) -> str:
         device = self._managed_output_device()
         if device is None or not hasattr(device, "communication_summary"):
