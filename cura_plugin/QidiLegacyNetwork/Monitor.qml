@@ -46,13 +46,6 @@ Component
                     Layout.leftMargin: UM.Theme.getSize("default_margin").width
                     Layout.rightMargin: UM.Theme.getSize("default_margin").width
 
-                    UM.Label { text: "Cura communication" }
-                    UM.Label
-                    {
-                        text: OutputDevice.communicationStateText
-                        font: UM.Theme.getFont("medium")
-                    }
-
                     UM.Label { text: "Connection" }
                     UM.Label { text: OutputDevice.connectionStatusText; font: UM.Theme.getFont("medium") }
 
@@ -83,11 +76,9 @@ Component
 
                 UM.Label
                 {
-                    text: OutputDevice.communicationNoticeText
+                    text: "The QIDI i-Fast legacy interface requires exclusive access. Cura automatically pauses monitoring and all other Cura communication during an upload. Before using QIDI Print, qidi-legacy, or another client, use Extensions > QIDI Legacy Network > Pause Cura Communication for External Tools."
                     wrapMode: Text.WordWrap
-                    color: OutputDevice.communicationPaused
-                        ? UM.Theme.getColor("error")
-                        : UM.Theme.getColor("text_inactive")
+                    color: UM.Theme.getColor("text_inactive")
                     Layout.fillWidth: true
                     Layout.leftMargin: UM.Theme.getSize("default_margin").width
                     Layout.rightMargin: UM.Theme.getSize("default_margin").width
