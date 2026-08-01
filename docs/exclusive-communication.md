@@ -21,12 +21,23 @@ three retrieved files matched the local source SHA-256.
 Before using QIDI Print, `qidi-legacy`, or another client:
 
 1. In Cura, select **Extensions > QIDI Legacy Network > Pause Cura Communication for External Tools**.
-2. Wait until Monitor shows **Paused for external access**.
+2. Wait a few seconds for any in-flight status request to finish.
 3. Use only one external client at a time.
 4. Resume Cura communication after the external client has finished.
 
 Cura cannot coordinate with QIDI Print or arbitrary external processes, so the operator must enforce
 exclusive access across applications.
+
+## Cura import safety
+
+The exclusive-access wrapper deliberately adds no new Qt signals or `pyqtProperty` definitions to
+Cura's existing `PrinterOutputDevice` meta-object. Communication state is exposed through the
+Python extension menu, while the Monitor view continues to use only the properties supplied by the
+physically validated base output device.
+
+The wrapper also waits until the wrapped Qt base constructor has run before assigning instance
+state. Its early `_update()` override uses a class-level sentinel while the base constructor is
+running. This avoids touching the wrapped QObject before Qt initialization is complete.
 
 ## Integrity boundary
 
