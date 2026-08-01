@@ -161,9 +161,19 @@ class QidiLegacyNetworkExtension(Extension):
         self.addMenuItem("Refresh Output Devices", self._refresh_output_devices)
         self.addMenuItem("Show Connection", self._show_connection)
 
+    @staticmethod
+    def _present_dialog(dialog: QDialog) -> None:
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
     def _configure_communication(self) -> None:
+        if self._communication_dialog is not None:
+            self._present_dialog(self._communication_dialog)
+            return
+
         try:
-            self._communication_dialog = _CommunicationDialog(self._plugin)
+            dialog = _CommunicationDialog(self._plugin)
         except Exception as exc:
             Message(
                 str(exc) or type(exc).__name__,
@@ -174,17 +184,21 @@ class QidiLegacyNetworkExtension(Extension):
                 message_type=Message.MessageType.ERROR,
             ).show()
             return
-        self._communication_dialog.finished.connect(self._communication_dialog_closed)
-        self._communication_dialog.show()
-        self._communication_dialog.raise_()
-        self._communication_dialog.activateWindow()
+
+        self._communication_dialog = dialog
+        dialog.finished.connect(self._communication_dialog_closed)
+        self._present_dialog(dialog)
 
     def _communication_dialog_closed(self, _result: int) -> None:
         self._communication_dialog = None
 
     def _configure_printer(self) -> None:
+        if self._configuration_dialog is not None:
+            self._present_dialog(self._configuration_dialog)
+            return
+
         try:
-            self._configuration_dialog = _PrinterAddressDialog(self._plugin)
+            dialog = _PrinterAddressDialog(self._plugin)
         except Exception as exc:
             Message(
                 str(exc) or type(exc).__name__,
@@ -195,10 +209,10 @@ class QidiLegacyNetworkExtension(Extension):
                 message_type=Message.MessageType.ERROR,
             ).show()
             return
-        self._configuration_dialog.finished.connect(self._configuration_dialog_closed)
-        self._configuration_dialog.show()
-        self._configuration_dialog.raise_()
-        self._configuration_dialog.activateWindow()
+
+        self._configuration_dialog = dialog
+        dialog.finished.connect(self._configuration_dialog_closed)
+        self._present_dialog(dialog)
 
     def _configuration_dialog_closed(self, _result: int) -> None:
         self._configuration_dialog = None
