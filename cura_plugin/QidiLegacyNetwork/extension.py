@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -11,6 +12,70 @@ from PyQt6.QtWidgets import (
 )
 from UM.Extension import Extension
 from UM.Message import Message
+
+
+class _CommunicationDialog(QDialog):
+    """Show and change Cura's persistent QIDI communication state."""
+
+    def __init__(self, plugin) -> None:
+        super().__init__()
+        self._plugin = plugin
+        self.setWindowTitle("QIDI Legacy Network — Cura Communication")
+        self.setModal(True)
+        self.setMinimumWidth(500)
+
+        summary = plugin.communication_summary()
+        self._enabled = QCheckBox("Cura monitoring and uploads enabled")
+        self._enabled.setChecked(plugin.communication_enabled())
+
+        self._status = QLabel(f"Current state: {summary}")
+        self._status.setWordWrap(True)
+
+        explanation = QLabel(
+            "Keep this enabled for Cura Monitor and Cura uploads. Clear it before using "
+            "QIDI Print, qidi-legacy, or another external client. After pausing, wait a few "
+            "seconds for any status request already in flight to finish. Only one application "
+            "may communicate with the i-Fast at a time."
+        )
+        explanation.setWordWrap(True)
+
+        self._error = QLabel()
+        self._error.setWordWrap(True)
+        self._error.setStyleSheet("color: #d32f2f;")
+        self._error.hide()
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(self._enabled)
+        layout.addWidget(self._status)
+        layout.addWidget(explanation)
+        layout.addWidget(self._error)
+        layout.addWidget(buttons)
+
+    def _show_error(self, text: str) -> None:
+        self._error.setText(text)
+        self._error.show()
+
+    def _save(self) -> None:
+        try:
+            text = self._plugin.set_communication_enabled(self._enabled.isChecked())
+        except Exception as exc:
+            self._show_error(str(exc) or type(exc).__name__)
+            return
+
+        Message(
+            text,
+            lifetime=30,
+            dismissable=True,
+            title="QIDI Cura Communication",
+            message_type=Message.MessageType.POSITIVE,
+        ).show()
+        self.accept()
 
 
 class _PrinterAddressDialog(QDialog):
@@ -32,8 +97,10 @@ class _PrinterAddressDialog(QDialog):
 
         explanation = QLabel(
             "Enter the printer's wired Ethernet address when available. On the i-Fast, "
-            "select the plug symbol and check or re-check Start Operation. Network uploads "
-            "receive a remote byte-count check only; use direct USB for important jobs."
+            "select the plug symbol and check or re-check Start Operation. The legacy UDP "
+            "service requires exclusive access: pause Cura communication before using QIDI "
+            "Print, qidi-legacy, or another client. Network uploads receive a remote byte-count "
+            "check only; use direct USB for important jobs."
         )
         explanation.setWordWrap(True)
 
@@ -86,15 +153,52 @@ class QidiLegacyNetworkExtension(Extension):
     def __init__(self, plugin) -> None:
         super().__init__()
         self._plugin = plugin
+        self._communication_dialog: _CommunicationDialog | None = None
         self._configuration_dialog: _PrinterAddressDialog | None = None
         self.setMenuName("QIDI Legacy Network")
+        self.addMenuItem("Cura Communication…", self._configure_communication)
         self.addMenuItem("Configure Printer Address…", self._configure_printer)
         self.addMenuItem("Refresh Output Devices", self._refresh_output_devices)
         self.addMenuItem("Show Connection", self._show_connection)
 
-    def _configure_printer(self) -> None:
+    @staticmethod
+    def _present_dialog(dialog: QDialog) -> None:
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _configure_communication(self) -> None:
+        if self._communication_dialog is not None:
+            self._present_dialog(self._communication_dialog)
+            return
+
         try:
-            self._configuration_dialog = _PrinterAddressDialog(self._plugin)
+            dialog = _CommunicationDialog(self._plugin)
+        except Exception as exc:
+            Message(
+                str(exc) or type(exc).__name__,
+                lifetime=0,
+                dismissable=True,
+                use_inactivity_timer=False,
+                title="QIDI Communication Controls Unavailable",
+                message_type=Message.MessageType.ERROR,
+            ).show()
+            return
+
+        self._communication_dialog = dialog
+        dialog.finished.connect(self._communication_dialog_closed)
+        self._present_dialog(dialog)
+
+    def _communication_dialog_closed(self, _result: int) -> None:
+        self._communication_dialog = None
+
+    def _configure_printer(self) -> None:
+        if self._configuration_dialog is not None:
+            self._present_dialog(self._configuration_dialog)
+            return
+
+        try:
+            dialog = _PrinterAddressDialog(self._plugin)
         except Exception as exc:
             Message(
                 str(exc) or type(exc).__name__,
@@ -105,10 +209,10 @@ class QidiLegacyNetworkExtension(Extension):
                 message_type=Message.MessageType.ERROR,
             ).show()
             return
-        self._configuration_dialog.finished.connect(self._configuration_dialog_closed)
-        self._configuration_dialog.show()
-        self._configuration_dialog.raise_()
-        self._configuration_dialog.activateWindow()
+
+        self._configuration_dialog = dialog
+        dialog.finished.connect(self._configuration_dialog_closed)
+        self._present_dialog(dialog)
 
     def _configuration_dialog_closed(self, _result: int) -> None:
         self._configuration_dialog = None
@@ -135,6 +239,9 @@ class QidiLegacyNetworkExtension(Extension):
 
     def _show_connection(self) -> None:
         Message(
-            f"Configured printer: {self._plugin.configuration_summary()}",
+            (
+                f"Configured printer: {self._plugin.configuration_summary()}\n"
+                f"Cura communication: {self._plugin.communication_summary()}"
+            ),
             title="QIDI Legacy Network",
         ).show()

@@ -8,8 +8,8 @@ from UM.OutputDevice.OutputDevicePlugin import OutputDevicePlugin
 from UM.PluginRegistry import PluginRegistry
 
 from .config import PluginConfig, build_config, load_config, save_config
-from .output_device import QidiLegacyOutputDevice
-from .registration import OutputDeviceRegistrar
+from .exclusive_output_device import ExclusiveQidiLegacyOutputDevice
+from .registration import OutputDeviceRegistrar, UPLOAD_DEVICE_ID
 
 
 class QidiLegacyNetworkPlugin(OutputDevicePlugin):
@@ -37,13 +37,19 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
             self._config = load_config(self._locate_config_path())
         return self._config
 
-    def _make_registrar(self, config: PluginConfig) -> OutputDeviceRegistrar:
+    def _make_registrar(
+        self,
+        config: PluginConfig,
+        *,
+        initially_paused: bool = False,
+    ) -> OutputDeviceRegistrar:
         return OutputDeviceRegistrar(
             self._app,
             self.getOutputDeviceManager(),
-            lambda start_after_upload: QidiLegacyOutputDevice(
+            lambda start_after_upload: ExclusiveQidiLegacyOutputDevice(
                 config,
                 start_after_upload=start_after_upload,
+                initially_paused=initially_paused,
             ),
             Logger.log,
         )
@@ -60,6 +66,9 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
 
         self._registrar = self._make_registrar(config)
         return True
+
+    def _managed_output_device(self):
+        return self.getOutputDeviceManager().getOutputDevice(UPLOAD_DEVICE_ID)
 
     def start(self) -> None:
         self._started = True
@@ -111,6 +120,52 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
         self._started = True
         return self._sync_output_devices("manual refresh")
 
+    def pause_communication(self) -> str:
+        device = self._managed_output_device()
+        if device is None:
+            self.refresh_now()
+            device = self._managed_output_device()
+        if device is None or not hasattr(device, "pause_communication"):
+            raise RuntimeError("The QIDI output device is not available.")
+        return device.pause_communication()
+
+    def resume_communication(self) -> str:
+        device = self._managed_output_device()
+        if device is None or not hasattr(device, "resume_communication"):
+            raise RuntimeError("The QIDI output device is not available.")
+        return device.resume_communication()
+
+    def communication_enabled(self) -> bool:
+        """Return the persistent user-controlled communication state.
+
+        Upload-exclusive mode temporarily suppresses monitoring but does not itself clear this
+        setting. A manual pause does, including when requested during an active upload.
+        """
+
+        device = self._managed_output_device()
+        if device is None:
+            self.refresh_now()
+            device = self._managed_output_device()
+        if device is None:
+            raise RuntimeError("The QIDI output device is not available.")
+        return not bool(getattr(device, "manually_paused", False))
+
+    def set_communication_enabled(self, enabled: bool) -> str:
+        current = self.communication_enabled()
+        if enabled == current:
+            if enabled:
+                return "Cura monitoring and uploads are already enabled."
+            return "Cura monitoring and uploads are already paused for external access."
+        if enabled:
+            return self.resume_communication()
+        return self.pause_communication()
+
+    def communication_summary(self) -> str:
+        device = self._managed_output_device()
+        if device is None or not hasattr(device, "communication_summary"):
+            return "Unavailable"
+        return device.communication_summary()
+
     def configuration(self) -> PluginConfig:
         return self._load_configuration()
 
@@ -124,6 +179,13 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
     def update_configuration(self, host: str, port: int) -> PluginConfig:
         """Persist a new address and recreate Cura's output devices immediately."""
 
+        existing_device = self._managed_output_device()
+        if existing_device is not None and getattr(existing_device, "upload_active", False):
+            raise RuntimeError("The printer address cannot be changed during a QIDI upload.")
+        restore_manual_pause = bool(
+            existing_device is not None and getattr(existing_device, "manually_paused", False)
+        )
+
         current = self.configuration()
         updated = build_config(
             host,
@@ -136,7 +198,10 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
         if self._registrar is not None:
             self._registrar.remove()
         self._config = updated
-        self._registrar = self._make_registrar(updated)
+        self._registrar = self._make_registrar(
+            updated,
+            initially_paused=restore_manual_pause,
+        )
         self._started = True
 
         if not self._sync_output_devices("configuration changed"):
@@ -144,6 +209,7 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
                 "The address was saved, but Cura could not refresh the QIDI output devices. "
                 "Restart Cura or use Extensions > QIDI Legacy Network > Refresh Output Devices."
             )
+
         return updated
 
     def stop(self) -> None:

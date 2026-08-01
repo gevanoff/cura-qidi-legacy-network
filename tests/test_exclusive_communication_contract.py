@@ -1,0 +1,66 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_ROOT = ROOT / "cura_plugin" / "QidiLegacyNetwork"
+
+
+def test_plugin_constructs_exclusive_output_device() -> None:
+    source = (PLUGIN_ROOT / "plugin.py").read_text(encoding="utf-8")
+
+    assert "from .exclusive_output_device import ExclusiveQidiLegacyOutputDevice" in source
+    assert "lambda start_after_upload: ExclusiveQidiLegacyOutputDevice(" in source
+
+
+def test_output_device_suspends_polling_around_entire_upload() -> None:
+    source = (PLUGIN_ROOT / "exclusive_output_device.py").read_text(encoding="utf-8")
+
+    update_start = source.index("    def _update(self) -> None:")
+    update_end = source.index("    def _on_monitor_finished", update_start)
+    update_body = source[update_start:update_end]
+    assert "state is None or not state.polling_allowed" in update_body
+
+    request_start = source.index("    def requestWrite")
+    request_end = source.index("    def _on_finished", request_start)
+    request_body = source[request_start:request_end]
+    assert request_body.index("begin_upload()") < request_body.index("super().requestWrite")
+
+    finished_body = source[source.index("    def _on_finished"):]
+    assert "finish_upload()" in finished_body
+    assert "self._update()" in finished_body
+
+
+def test_duplicate_upload_uses_cura_output_device_errors() -> None:
+    source = (PLUGIN_ROOT / "exclusive_output_device.py").read_text(encoding="utf-8")
+
+    request_start = source.index("    def requestWrite")
+    request_end = source.index("    def _on_finished", request_start)
+    request_body = source[request_start:request_end]
+
+    assert "if state.upload_active:" in request_body
+    assert "OutputDeviceError.DeviceBusyError()" in request_body
+    assert "except RuntimeError as exc:" in request_body
+    assert "OutputDeviceError.WriteRequestFailedError(str(exc))" in request_body
+
+
+def test_initial_pause_suppresses_first_monitor_request() -> None:
+    source = (PLUGIN_ROOT / "exclusive_output_device.py").read_text(encoding="utf-8")
+
+    init_start = source.index("    def __init__")
+    init_end = source.index("    def _state", init_start)
+    init_body = source[init_start:init_end]
+
+    assert "initially_paused: bool = False" in init_body
+    assert "state.pause_for_external_access()" in init_body
+    assert "if initially_paused:" in init_body
+    assert "else:\n            self._update()" in init_body
+
+
+def test_monitor_explains_exclusive_access_without_subclass_qt_properties() -> None:
+    qml = (PLUGIN_ROOT / "Monitor.qml").read_text(encoding="utf-8")
+
+    assert "requires exclusive access" in qml
+    assert "QIDI Legacy Network > Cura Communication…" in qml
+    assert "OutputDevice.communicationStateText" not in qml
+    assert "OutputDevice.communicationNoticeText" not in qml
+    assert "OutputDevice.communicationPaused" not in qml
