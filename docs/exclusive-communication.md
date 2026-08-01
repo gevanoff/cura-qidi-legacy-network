@@ -18,12 +18,18 @@ three retrieved files matched the local source SHA-256.
 
 ## External tools
 
+Cura's standard extension API exposes text-and-callback menu entries rather than native checkable
+items. The plugin therefore provides one **Cura Communication…** menu item with a dialog containing
+the checked state **Cura monitoring and uploads enabled**.
+
 Before using QIDI Print, `qidi-legacy`, or another client:
 
-1. In Cura, select **Extensions > QIDI Legacy Network > Pause Cura Communication for External Tools**.
-2. Wait a few seconds for any in-flight status request to finish.
-3. Use only one external client at a time.
-4. Resume Cura communication after the external client has finished.
+1. Open **Extensions > QIDI Legacy Network > Cura Communication…**.
+2. Clear **Cura monitoring and uploads enabled** and save.
+3. Wait a few seconds for any in-flight status request to finish.
+4. Use only one external client at a time.
+5. Reopen the dialog, check **Cura monitoring and uploads enabled**, and save when the external
+   client has finished.
 
 Cura cannot coordinate with QIDI Print or arbitrary external processes, so the operator must enforce
 exclusive access across applications.
@@ -58,6 +64,13 @@ Therefore the apparent size and hash difference between the transfer source and 
 local save was newline representation, not transfer corruption. Hash comparisons must be made
 against the exact LF-form byte stream prepared by the plugin, or after explicitly normalizing the
 local-save copy from CRLF to LF.
+
+## Physical validation of exclusive access
+
+- Monitoring remained paused for the duration of Cura uploads and no concurrent-communication
+  errors occurred.
+- Manual pause allowed an external upload to complete.
+- Cura rejected upload attempts while manually paused.
 
 ## Integrity boundary
 
