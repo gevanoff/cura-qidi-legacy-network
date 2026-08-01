@@ -25,10 +25,20 @@ class ExclusiveQidiLegacyOutputDevice(QidiLegacyOutputDevice):
     # without assigning Python attributes before the wrapped Qt base object has been initialized.
     _communication_state: QidiCommunicationState | None = None
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args, initially_paused: bool = False, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._communication_state = QidiCommunicationState()
-        self._update()
+        state = QidiCommunicationState()
+        if initially_paused:
+            state.pause_for_external_access()
+        self._communication_state = state
+
+        if initially_paused:
+            # Do not issue even one initial status request when replacing a device while an
+            # external client has exclusive access.
+            self.setConnectionState(ConnectionState.Closed)
+            self.monitorChanged.emit()
+        else:
+            self._update()
 
     def _state(self) -> QidiCommunicationState:
         state = self._communication_state
@@ -108,8 +118,15 @@ class ExclusiveQidiLegacyOutputDevice(QidiLegacyOutputDevice):
                 "Cura QIDI communication is paused for an external client. Resume communication "
                 "before starting an upload."
             )
+        if state.upload_active:
+            raise OutputDeviceError.DeviceBusyError()
 
-        state.begin_upload()
+        try:
+            state.begin_upload()
+        except RuntimeError as exc:
+            # Keep all state-machine failures inside Cura's normal output-device error path.
+            raise OutputDeviceError.WriteRequestFailedError(str(exc)) from exc
+
         self.setConnectionState(ConnectionState.Busy)
         self.monitorChanged.emit()
         Logger.log(
