@@ -37,13 +37,19 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
             self._config = load_config(self._locate_config_path())
         return self._config
 
-    def _make_registrar(self, config: PluginConfig) -> OutputDeviceRegistrar:
+    def _make_registrar(
+        self,
+        config: PluginConfig,
+        *,
+        initially_paused: bool = False,
+    ) -> OutputDeviceRegistrar:
         return OutputDeviceRegistrar(
             self._app,
             self.getOutputDeviceManager(),
             lambda start_after_upload: ExclusiveQidiLegacyOutputDevice(
                 config,
                 start_after_upload=start_after_upload,
+                initially_paused=initially_paused,
             ),
             Logger.log,
         )
@@ -192,7 +198,10 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
         if self._registrar is not None:
             self._registrar.remove()
         self._config = updated
-        self._registrar = self._make_registrar(updated)
+        self._registrar = self._make_registrar(
+            updated,
+            initially_paused=restore_manual_pause,
+        )
         self._started = True
 
         if not self._sync_output_devices("configuration changed"):
@@ -201,10 +210,6 @@ class QidiLegacyNetworkPlugin(OutputDevicePlugin):
                 "Restart Cura or use Extensions > QIDI Legacy Network > Refresh Output Devices."
             )
 
-        if restore_manual_pause:
-            replacement = self._managed_output_device()
-            if replacement is not None and hasattr(replacement, "pause_communication"):
-                replacement.pause_communication()
         return updated
 
     def stop(self) -> None:
