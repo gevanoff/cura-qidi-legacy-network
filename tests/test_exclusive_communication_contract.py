@@ -34,7 +34,7 @@ def test_monitor_explains_exclusive_access_without_subclass_qt_properties() -> N
     qml = (PLUGIN_ROOT / "Monitor.qml").read_text(encoding="utf-8")
 
     assert "requires exclusive access" in qml
-    assert "Pause Cura Communication for External Tools" in qml
+    assert "QIDI Legacy Network > Cura Communication…" in qml
     assert "OutputDevice.communicationStateText" not in qml
     assert "OutputDevice.communicationNoticeText" not in qml
     assert "OutputDevice.communicationPaused" not in qml
