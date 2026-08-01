@@ -76,7 +76,7 @@ Component
 
                 UM.Label
                 {
-                    text: "The QIDI i-Fast legacy interface requires exclusive access. Cura automatically pauses monitoring and all other Cura communication during an upload. Before using QIDI Print, qidi-legacy, or another client, use Extensions > QIDI Legacy Network > Pause Cura Communication for External Tools."
+                    text: "The QIDI i-Fast legacy interface requires exclusive access. Cura automatically pauses monitoring and all other Cura communication during an upload. Before using QIDI Print, qidi-legacy, or another client, open Extensions > QIDI Legacy Network > Cura Communication… and clear Cura monitoring and uploads enabled."
                     wrapMode: Text.WordWrap
                     color: UM.Theme.getColor("text_inactive")
                     Layout.fillWidth: true
