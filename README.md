@@ -48,12 +48,18 @@ The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura ma
 - a Git-managed **0.20 mm Reliable** profile selected by the default Normal quality type;
 - a Generic PLA overlay with explicit initial and regular nozzle and bed temperatures.
 
-The reliability-first profile uses a 0.28 mm initial layer, 15 mm/s first-layer and brim speed,
-125% initial-layer line width, 108% initial-layer and brim flow, a zero-gap 10 mm brim, and no fan
-on the first layer. Generic PLA starts at 210 °C nozzle and 65 °C bed, then settles to 205 °C and
-60 °C. General and infill speed are capped at 45 mm/s, with slower walls and top/bottom surfaces.
+The reliability-first profile uses a 0.30 mm initial layer, 15 mm/s first-layer and brim speed,
+120% initial-layer line width at 100% flow, a zero-gap 10 mm brim, and no fan on the first layer.
+Generic PLA starts at 205 °C nozzle and 65 °C bed, then settles to 200 °C and 60 °C. Initial-layer
+travel is limited to 40 mm/s and the first four layers increase speed gradually. Retraction is
+explicitly enabled with combing off and a 0.2 mm Z hop to reduce the chance of the nozzle dragging
+through deposited filament. General and infill speed are capped at 45 mm/s, with slower walls and
+top/bottom surfaces.
+
 These values still require physical first-layer validation because a profile cannot correct an
-incorrect nozzle gap, dirty build surface, loose bed, or obstructed extrusion path.
+incorrect nozzle gap, dirty build surface, loose bed, obstructed extrusion path, or plastic stuck to
+the nozzle exterior. The previous 108% initial/brim flow was removed after a physical print formed
+material that adhered to the nozzle and was dragged across the plate.
 
 The profile does not automatically enable supports, choose a support extruder, or force a support
 Z-gap; those depend on model geometry, verified T0/T1 mapping, and the actual support material. The
