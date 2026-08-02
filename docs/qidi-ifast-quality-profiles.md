@@ -18,29 +18,73 @@ The default Normal quality type is intentionally tuned for reliability rather th
 |---|---:|
 | Profile name | 0.20 mm Reliable |
 | Layer height | 0.20 mm |
-| Initial layer height | 0.28 mm |
+| Initial layer height | 0.30 mm |
 | Initial layer speed | 15 mm/s |
-| Initial-layer travel speed | 75 mm/s |
-| Initial layer line width | 125% |
-| Initial layer flow | 108% |
-| Brim flow | 108% |
+| Initial-layer travel speed | 40 mm/s |
+| Slower layers | 4 |
+| Initial layer line width | 120% |
+| Initial layer flow | 100% |
+| Brim flow | 100% |
 | Adhesion type | Brim |
 | Brim gap | 0 mm |
 | Brim width | 10 mm |
 | Initial fan speed | 0% |
 | Full fan layer | 4 |
+| Minimum layer time | 10 s |
 | General print / infill speed | 45 mm/s |
+| Travel speed | 100 mm/s |
 | Wall speed | 30 mm/s |
 | Outer wall speed | 25 mm/s |
 | Top/bottom speed | 30 mm/s |
-| Generic PLA print temperature | 205 °C |
-| Generic PLA initial print temperature | 210 °C |
+| Generic PLA print temperature | 200 °C |
+| Generic PLA initial print temperature | 205 °C |
 | Generic PLA bed temperature | 60 °C |
 | Generic PLA initial bed temperature | 65 °C |
 
-The thicker first layer tolerates small bed-height variation better than the prior generic baseline. The combination of slower deposition, modest first-layer over-extrusion, a wider attached brim, and delayed cooling is intended to keep the first several layers anchored while avoiding extreme compensation values.
+The first revision of this profile used 125% initial line width and 108% initial/brim flow. A physical test began acceptably but then produced raised or loose filament that adhered to the nozzle and was dragged across the plate. Those extrusion multipliers were removed: a reliability profile must not compensate for uncertain physical Z calibration by depositing excess material.
 
-This profile cannot correct a dirty build surface, a loose bed, a clogged nozzle, or incorrect physical nozzle height. Do not keep increasing flow when first-layer lines remain round and separate; recalibrate the bed/nozzle gap instead.
+The 0.30 mm initial layer follows Cura's inherited initial-layer height and provides tolerance for small bed-height variation. A 120% line width increases contact area without also increasing flow. Four slower layers provide a gradual transition to normal speed instead of accelerating immediately after the first layer.
+
+## Travel clearance and nozzle-drag prevention
+
+The profile explicitly activates the travel controls that were previously inherited or inactive:
+
+| Setting | Value |
+|---|---:|
+| Retraction | Enabled |
+| Combing | Off |
+| Minimum travel for retraction | 1.5 mm |
+| Z hop when retracted | Enabled |
+| Z-hop height | 0.2 mm |
+| Z-hop speed | 5 mm/s |
+| Z hop only over collisions | Disabled; hop on every qualifying retracted travel |
+| Retract before outer wall | Always |
+| Infill before walls | Disabled |
+
+With combing disabled, qualifying travel moves retract rather than dragging an unretracted nozzle through already deposited first-layer lines. A 0.2 mm Z hop matches the height present in QIDI's legacy Cura definition and provides clearance during those moves.
+
+Z hop only protects non-extruding travel. It cannot prevent a collision caused by a first layer that is physically too high, over-extruded, curled, or already detached. If the nozzle catches material while actively extruding, inspect Z gap, plate cleanliness, nozzle cleanliness, temperature, and extrusion consistency before increasing any adhesion multiplier.
+
+## Comparison with legacy QIDI Print resources
+
+QIDI Print 6.5.4 is Cura-based. QIDI's official legacy Cura profile archive contains an `i-fast` definition and a shared `qidi` base definition. The relevant inherited behavior is:
+
+- 20 mm/s initial-layer speed;
+- 100 mm/s travel speed;
+- 500 mm/s² print and travel acceleration values;
+- 8 mm/s print and travel jerk values;
+- 0.2 mm configured Z-hop height, while Cura's inherited Z-hop enable switch remains off unless selected;
+- combing set to Not in Skin when Z hop is disabled, and Off when Z hop is enabled;
+- retract before outer walls;
+- avoid supports during travel when combing is active;
+- 10-second minimum layer time;
+- skirt adhesion by default rather than a brim;
+- two long purge lines at Z0.3, one for each nozzle, in the i-Fast start G-code;
+- the Generic PLA Fine overlay raises ordinary print speed to 60 mm/s but otherwise relies heavily on Cura's generic material and quality defaults.
+
+This profile is deliberately slower and uses an attached brim. It explicitly enables the legacy 0.2 mm Z hop because the physical failure included nozzle dragging. It does **not** yet copy QIDI Print's dual-nozzle purge sequence: that start code heats and primes both tools, and should not be imported until physical T0/T1 mapping and safe active-tool handling are verified.
+
+The legacy acceleration and jerk numbers are documented but are not forcibly emitted by this profile. Enabling slicer-generated motion-control commands would change firmware state and requires a separate physical validation.
 
 ## Initial support baseline
 
@@ -91,16 +135,19 @@ Cura stores UI edits as user-level overrides. Those overrides can take precedenc
 
 ## Physical validation
 
-Start with a small first-layer test, not a long model. Confirm:
+Clean the nozzle exterior while warm, then clean the build plate according to its surface requirements. Start with a small first-layer test saved directly to USB, not a long model. Confirm:
 
 - the generated G-code requests a 65 °C initial bed and 60 °C regular bed;
-- the active nozzle starts at 210 °C and settles to 205 °C;
+- the active nozzle starts at 205 °C and settles to 200 °C;
 - the brim and model first layer print at 15 mm/s;
+- first-layer travel moves are limited to 40 mm/s;
 - the brim touches the model and is approximately 10 mm wide;
 - the fan remains off on the first layer and ramps to full speed at layer 4;
-- adjacent first-layer lines touch without severe ridges or gaps;
+- the first four layers increase speed gradually;
+- retracted travel moves contain a 0.2 mm Z hop;
+- adjacent first-layer lines touch without raised ridges or gaps;
 - the brim remains attached through the first several layers;
-- the nozzle does not scrape the build surface.
+- the nozzle does not scrape the build surface or collect filament.
 
 Inspect generated temperatures with:
 
@@ -108,15 +155,16 @@ Inspect generated temperatures with:
 grep -nE '^(M104|M109|M140|M190|T[01])' file.gcode | head -40
 ```
 
-Expected initial targets include `S210` for the active nozzle and `S65` for the bed. Later commands should reduce the targets to 205 °C and 60 °C.
+Expected initial targets include `S205` for the active nozzle and `S65` for the bed. Later commands should reduce the targets to 200 °C and 60 °C.
 
 For support validation, use a small bridge or overhang coupon rather than a long production print. Confirm that Cura shows 15% support density, an 80% interface, and 0.6 mm interface thickness. Verify the chosen support extruder and top distance manually before slicing. Inspect Preview to confirm that tool changes occur only where intended and that the interface is three layers thick.
 
 ## Failure interpretation
 
 - **Round, separate first-layer lines:** nozzle is too far from the bed or extrusion is obstructed. Correct physical calibration before profile tuning.
-- **Transparent, deeply ridged, or scraping lines:** nozzle is too close. Increase the physical gap before printing again.
+- **Raised ridges, transparent areas, scraping, or filament accumulating on the nozzle:** nozzle is too close, flow is excessive, temperature is too high, or plastic is stuck to the nozzle exterior. Stop and correct the physical condition rather than adding more flow.
 - **Lines look properly flattened but detach:** clean the plate, verify bed temperature, and inspect for drafts or cooling that begins too early.
+- **The nozzle crosses and catches sound first-layer lines during a travel move:** verify the selected profile actually has combing off and 0.2 mm Z hop enabled; inspect G-code or Cura Preview for the travel path.
 - **The first layer holds but the model later becomes spaghetti:** inspect the sliced preview for unsupported geometry, verify support generation, and confirm the part was not struck by a nozzle or curled edge.
 
 Record the physical result in the pull request before promoting the profile from draft status.
