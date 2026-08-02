@@ -64,18 +64,35 @@ def test_normal_quality_profile_defines_reliable_first_layer_baseline() -> None:
 
     values = profile["values"]
     assert values.getfloat("layer_height") == 0.20
-    assert values.getfloat("layer_height_0") == 0.28
+    assert values.getfloat("layer_height_0") == 0.30
     assert values.getfloat("speed_layer_0") == 15
     assert values.getfloat("skirt_brim_speed") == 15
-    assert values.getfloat("speed_travel_layer_0") == 75
-    assert values.getfloat("initial_layer_line_width_factor") == 125
-    assert values.getfloat("material_flow_layer_0") == 108
-    assert values.getfloat("skirt_brim_material_flow") == 108
+    assert values.getfloat("speed_travel_layer_0") == 40
+    assert values.getfloat("initial_layer_line_width_factor") == 120
+    assert values.getfloat("material_flow_layer_0") == 100
+    assert values.getfloat("skirt_brim_material_flow") == 100
     assert values["adhesion_type"] == "brim"
     assert values.getfloat("brim_gap") == 0
     assert values.getfloat("brim_width") == 10
     assert values.getfloat("cool_fan_speed_0") == 0
     assert values.getint("cool_fan_full_layer") == 4
+    assert values.getfloat("cool_min_layer_time") == 10
+    assert values.getint("speed_slowdown_layers") == 4
+
+
+def test_normal_quality_profile_prevents_nozzle_drag_during_travel() -> None:
+    profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
+    values = profile["values"]
+
+    assert values.getboolean("retraction_enable") is True
+    assert values["retraction_combing"] == "off"
+    assert values.getfloat("retraction_min_travel") == 1.5
+    assert values.getboolean("retraction_hop_enabled") is True
+    assert values.getboolean("retraction_hop_only_when_collides") is False
+    assert values.getfloat("retraction_hop") == 0.2
+    assert values.getfloat("speed_z_hop") == 5
+    assert values["travel_retract_before_outer_wall"] == "force_retracted"
+    assert values.getboolean("infill_before_walls") is False
 
 
 def test_normal_quality_profile_caps_general_print_speeds() -> None:
@@ -87,6 +104,7 @@ def test_normal_quality_profile_caps_general_print_speeds() -> None:
     assert values.getfloat("speed_wall") == 30
     assert values.getfloat("speed_wall_0") == 25
     assert values.getfloat("speed_topbottom") == 30
+    assert values.getfloat("speed_travel") == 100
 
 
 def test_normal_quality_profile_defines_conservative_support_baseline() -> None:
@@ -118,8 +136,8 @@ def test_generic_pla_overlay_pins_first_layer_temperatures() -> None:
     assert profile["metadata"].getint("setting_version") == 27
 
     values = profile["values"]
-    assert values.getfloat("material_print_temperature") == 205
-    assert values.getfloat("material_print_temperature_layer_0") == 210
+    assert values.getfloat("material_print_temperature") == 200
+    assert values.getfloat("material_print_temperature_layer_0") == 205
     assert values.getfloat("material_bed_temperature") == 60
     assert values.getfloat("material_bed_temperature_layer_0") == 65
 
