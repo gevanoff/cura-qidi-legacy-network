@@ -45,17 +45,20 @@ The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura ma
 - heated-bed support;
 - minimal start/end G-code without unvalidated XY purge or parking moves;
 - zero slicer-side nozzle offsets while firmware calibration ownership is tested;
-- a Git-managed 0.20 mm Normal profile with conservative first-layer and support defaults;
-- a Generic PLA overlay with explicit nozzle and bed temperatures.
+- a Git-managed **0.20 mm Reliable** profile selected by the default Normal quality type;
+- a Generic PLA overlay with explicit initial and regular nozzle and bed temperatures.
 
-The initial quality profile uses an 18 mm/s first layer, 8 mm brim, 15% zig-zag bulk support, and
-an 80% three-layer support interface. These values remain subject to physical validation. The
-profile does not automatically enable supports, choose a support extruder, or force a support Z-gap;
-those depend on model geometry, verified T0/T1 mapping, and the actual support material.
+The reliability-first profile uses a 0.28 mm initial layer, 15 mm/s first-layer and brim speed,
+125% initial-layer line width, 108% initial-layer and brim flow, a zero-gap 10 mm brim, and no fan
+on the first layer. Generic PLA starts at 210 °C nozzle and 65 °C bed, then settles to 205 °C and
+60 °C. General and infill speed are capped at 45 mm/s, with slower walls and top/bottom surfaces.
+These values still require physical first-layer validation because a profile cannot correct an
+incorrect nozzle gap, dirty build surface, loose bed, or obstructed extrusion path.
 
-PLA, support separation, purge, and retraction refinements will be added only after physical tests.
-The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
-and safe limits can be represented without allowing invalid dual-nozzle placement.
+The profile does not automatically enable supports, choose a support extruder, or force a support
+Z-gap; those depend on model geometry, verified T0/T1 mapping, and the actual support material. The
+printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes and
+safe limits can be represented without allowing invalid dual-nozzle placement.
 
 A staged validation plan and a small two-part checkerboard model are included in:
 
@@ -164,7 +167,11 @@ C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal.ins
 C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal_generic_pla.inst.cfg
 ```
 
-Restart Cura, add **QIDI Tech > QIDI i-Fast**, slice a model, and open the output-action dropdown.
+Restart Cura, add **QIDI Tech > QIDI i-Fast**, select **0.20 mm Reliable** and **Generic PLA**, and
+discard stale custom changes when Cura asks whether to retain them. If Cura still displays old
+values, remove and re-add the QIDI i-Fast machine. Then slice a small first-layer test before using a
+production model.
+
 The development plugin provides:
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
