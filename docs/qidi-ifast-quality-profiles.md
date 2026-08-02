@@ -30,6 +30,31 @@ The first profile revision intentionally changes only a small set of first-layer
 
 These values are a conservative starting point, not a completed physical calibration. Do not add purge moves, nozzle offsets, automatic print start, or unrelated motion settings as part of adhesion tuning.
 
+## Initial support baseline
+
+The profile also supplies conservative geometry-independent values that take effect only when support generation is enabled:
+
+| Setting | Value |
+|---|---:|
+| Support density | 15% |
+| Support pattern | Zig Zag |
+| Support wall line count | 1 |
+| Support interface | Enabled |
+| Support interface density | 80% |
+| Support interface thickness | 0.6 mm |
+| Support interface pattern | Zig Zag |
+
+At the 0.20 mm profile layer height, a 0.6 mm interface produces three dense interface layers. The bulk support remains relatively sparse while the interface provides the surface immediately beneath the model.
+
+The profile deliberately does **not**:
+
+- enable support generation for every model;
+- assign either physical extruder as the support or interface extruder;
+- set the support top/Z distance;
+- assume that ordinary PLA and dedicated PLA support filament require the same separation gap.
+
+Choose the support and support-interface extruders per print only after confirming the physical T0/T1 mapping. Set the support top distance from the support-filament manufacturer's guidance and a physical separation test. Ordinary PLA used against PLA normally needs a non-zero gap; a purpose-designed breakaway support material may permit a smaller gap.
+
 ## Install and activate
 
 Close Cura before installing:
@@ -69,6 +94,8 @@ grep -nE '^(M104|M109|M140|M190|T[01])' file.gcode | head -40
 ```
 
 Expected initial targets include `S200` for the active nozzle and `S65` for the bed. A later bed command should reduce the target to 60 °C.
+
+For support validation, use a small bridge or overhang coupon rather than a long production print. Confirm that Cura shows 15% support density, an 80% interface, and 0.6 mm interface thickness. Verify the chosen support extruder and top distance manually before slicing. Inspect Preview to confirm that tool changes occur only where intended and that the interface is three layers thick.
 
 If lines are round and separate, correct the printer's physical Z/nozzle calibration rather than continually increasing flow. If lines are flattened correctly but detach, clean the build surface and then tune bed temperature, first-layer speed, or adhesion width one change at a time.
 
