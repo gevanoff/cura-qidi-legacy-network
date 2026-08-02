@@ -72,6 +72,23 @@ def test_normal_quality_profile_defines_conservative_first_layer_baseline() -> N
     assert values.getfloat("cool_fan_speed_0") == 0
 
 
+def test_normal_quality_profile_defines_conservative_support_baseline() -> None:
+    profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
+    values = profile["values"]
+
+    assert values.getfloat("support_infill_rate") == 15
+    assert values["support_pattern"] == "zigzag"
+    assert values.getint("support_wall_count") == 1
+    assert values.getboolean("support_interface_enable") is True
+    assert values.getfloat("support_interface_density") == 80
+    assert values.getfloat("support_interface_height") == 0.6
+    assert values["support_interface_pattern"] == "zigzag"
+    assert "support_enable" not in values
+    assert "support_infill_extruder_nr" not in values
+    assert "support_interface_extruder_nr" not in values
+    assert "support_top_distance" not in values
+
+
 def test_generic_pla_overlay_pins_first_layer_temperatures() -> None:
     profile = _load_quality(
         "quality/qidi_ifast/qidi_ifast_normal_generic_pla.inst.cfg"
