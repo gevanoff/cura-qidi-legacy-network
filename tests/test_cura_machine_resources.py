@@ -53,23 +53,40 @@ def test_extruder_definitions_are_numbered_and_start_with_zero_slicer_offsets() 
         assert overrides["machine_extruder_offset_y"]["default_value"] == 0.0
 
 
-def test_normal_quality_profile_defines_conservative_first_layer_baseline() -> None:
+def test_normal_quality_profile_defines_reliable_first_layer_baseline() -> None:
     profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
 
     assert profile["general"]["definition"] == "qidi_ifast"
+    assert profile["general"]["name"] == "0.20 mm Reliable"
     assert profile["metadata"].getboolean("global_quality") is True
     assert profile["metadata"]["quality_type"] == "normal"
     assert profile["metadata"].getint("setting_version") == 27
 
     values = profile["values"]
     assert values.getfloat("layer_height") == 0.20
-    assert values.getfloat("layer_height_0") == 0.24
-    assert values.getfloat("speed_layer_0") == 18
-    assert values.getfloat("skirt_brim_speed") == 18
-    assert values.getfloat("initial_layer_line_width_factor") == 120
+    assert values.getfloat("layer_height_0") == 0.28
+    assert values.getfloat("speed_layer_0") == 15
+    assert values.getfloat("skirt_brim_speed") == 15
+    assert values.getfloat("speed_travel_layer_0") == 75
+    assert values.getfloat("initial_layer_line_width_factor") == 125
+    assert values.getfloat("material_flow_layer_0") == 108
+    assert values.getfloat("skirt_brim_material_flow") == 108
     assert values["adhesion_type"] == "brim"
-    assert values.getfloat("brim_width") == 8
+    assert values.getfloat("brim_gap") == 0
+    assert values.getfloat("brim_width") == 10
     assert values.getfloat("cool_fan_speed_0") == 0
+    assert values.getint("cool_fan_full_layer") == 4
+
+
+def test_normal_quality_profile_caps_general_print_speeds() -> None:
+    profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
+    values = profile["values"]
+
+    assert values.getfloat("speed_print") == 45
+    assert values.getfloat("speed_infill") == 45
+    assert values.getfloat("speed_wall") == 30
+    assert values.getfloat("speed_wall_0") == 25
+    assert values.getfloat("speed_topbottom") == 30
 
 
 def test_normal_quality_profile_defines_conservative_support_baseline() -> None:
@@ -95,14 +112,14 @@ def test_generic_pla_overlay_pins_first_layer_temperatures() -> None:
     )
 
     assert profile["general"]["definition"] == "qidi_ifast"
-    assert profile["general"]["name"] == "0.20 mm Normal"
+    assert profile["general"]["name"] == "0.20 mm Reliable"
     assert profile["metadata"]["material"] == "generic_pla"
     assert profile["metadata"]["quality_type"] == "normal"
     assert profile["metadata"].getint("setting_version") == 27
 
     values = profile["values"]
-    assert values.getfloat("material_print_temperature") == 200
-    assert values.getfloat("material_print_temperature_layer_0") == 200
+    assert values.getfloat("material_print_temperature") == 205
+    assert values.getfloat("material_print_temperature_layer_0") == 210
     assert values.getfloat("material_bed_temperature") == 60
     assert values.getfloat("material_bed_temperature_layer_0") == 65
 
