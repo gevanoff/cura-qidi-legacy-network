@@ -5,8 +5,10 @@ The repository is the source of truth for the i-Fast machine, extruder, and qual
 ## Profile layout
 
 - `cura_resources/definitions/qidi_ifast.def.json` declares the printer and enables machine quality profiles.
-- `cura_resources/quality/qidi_ifast/qidi_ifast_normal.inst.cfg` contains the machine-wide 0.20 mm Reliable settings.
-- `cura_resources/quality/qidi_ifast/qidi_ifast_normal_generic_pla.inst.cfg` overlays Generic PLA temperatures.
+- `cura_resources/quality/qidi_ifast/qidi_ifast_normal.inst.cfg` is the **global** 0.20 mm Reliable quality container. It owns machine-wide geometry, adhesion, and support defaults.
+- `cura_resources/quality/qidi_ifast/qidi_ifast_normal_generic_pla.inst.cfg` is the **non-global, material-matched extruder quality** container. It owns Generic PLA temperatures plus extrusion, cooling, retraction, Z-hop, and speed controls.
+
+This split is required by Cura's stack model. For a machine with `has_machine_quality = true` and material support, each `ExtruderStack` selects a non-global quality container matching the machine quality definition, material, and quality type. The global quality container does not reliably provide extruder-scoped controls. Both i-Fast extruders use the same `qidi_ifast` quality definition, so T0 and T1 each receive the Generic PLA overlay whenever that extruder is configured for Generic PLA.
 
 The installer copies the complete nested resource tree into the selected Cura configuration directory. It does not delete Cura user overrides.
 
@@ -47,7 +49,7 @@ The 0.30 mm initial layer follows Cura's inherited initial-layer height and prov
 
 ## Travel clearance and nozzle-drag prevention
 
-The profile explicitly activates the travel controls that were previously inherited or inactive:
+The Generic PLA extruder quality explicitly activates the travel controls that were previously inherited or inactive:
 
 | Setting | Value |
 |---|---:|
@@ -63,7 +65,7 @@ The profile explicitly activates the travel controls that were previously inheri
 
 With combing disabled, qualifying travel moves retract rather than dragging an unretracted nozzle through already deposited first-layer lines. A 0.2 mm Z hop matches the height present in QIDI's legacy Cura definition and provides clearance during those moves.
 
-Z hop only protects non-extruding travel. It cannot prevent a collision caused by a first layer that is physically too high, over-extruded, curled, or already detached. If the nozzle catches material while actively extruding, inspect Z gap, plate cleanliness, nozzle cleanliness, temperature, and extrusion consistency before increasing any adhesion multiplier.
+Z hop only protects non-extruding travel. It cannot prevent a collision caused by a first layer that is physically too high, over-extruded, curled, already detached, or produced by the wrong mechanically lowered nozzle. If the nozzle catches material while actively extruding, inspect tool latching, Z gap, plate cleanliness, nozzle cleanliness, temperature, and extrusion consistency before increasing any adhesion multiplier.
 
 ## Comparison with legacy QIDI Print resources
 
@@ -82,13 +84,13 @@ QIDI Print 6.5.4 is Cura-based. QIDI's official legacy Cura profile archive cont
 - two long purge lines at Z0.3, one for each nozzle, in the i-Fast start G-code;
 - the Generic PLA Fine overlay raises ordinary print speed to 60 mm/s but otherwise relies heavily on Cura's generic material and quality defaults.
 
-This profile is deliberately slower and uses an attached brim. It explicitly enables the legacy 0.2 mm Z hop because the physical failure included nozzle dragging. It does **not** yet copy QIDI Print's dual-nozzle purge sequence: that start code heats and primes both tools, and should not be imported until physical T0/T1 mapping and safe active-tool handling are verified.
+This profile is deliberately slower and uses an attached brim. It explicitly enables the legacy 0.2 mm Z hop because the physical failure included nozzle dragging. Startup purge and mechanical nozzle-latching behavior belong to the machine definition rather than the quality profile and are being corrected/validated separately; the quality resources must not attempt to compensate for a machine-state error.
 
 The legacy acceleration and jerk numbers are documented but are not forcibly emitted by this profile. Enabling slicer-generated motion-control commands would change firmware state and requires a separate physical validation.
 
 ## Initial support baseline
 
-The profile also supplies conservative geometry-independent values that take effect only when support generation is enabled:
+The global profile also supplies conservative geometry-independent values that take effect only when support generation is enabled:
 
 | Setting | Value |
 |---|---:|
@@ -109,7 +111,7 @@ The profile deliberately does **not**:
 - set the support top/Z distance;
 - assume that ordinary PLA and dedicated PLA support filament require the same separation gap.
 
-Choose the support and support-interface extruders per print only after confirming the physical T0/T1 mapping. Set the support top distance from the support-filament manufacturer's guidance and a physical separation test. Ordinary PLA used against PLA normally needs a non-zero gap; a purpose-designed breakaway support material may permit a smaller gap.
+Choose the support and support-interface extruders per print only after the physical tool-switch path has been validated. Set the support top distance from the support-filament manufacturer's guidance and a physical separation test. Ordinary PLA used against PLA normally needs a non-zero gap; a purpose-designed breakaway support material may permit a smaller gap.
 
 ## Install and activate
 
@@ -126,7 +128,7 @@ After restarting Cura:
 
 1. Select the QIDI i-Fast printer.
 2. Select **0.20 mm Reliable**.
-3. Select **Generic PLA** for the active extruder.
+3. Select **Generic PLA** for each extruder that should receive the reliable PLA extrusion/retraction/speed settings.
 4. Use **Discard changes** when Cura reports retained custom settings that should not override the Git-managed baseline.
 5. If Cura continues to show old values, remove and re-add the QIDI i-Fast machine rather than editing every setting manually.
 6. Check both extruders only when performing a dual-extrusion test.
@@ -135,10 +137,10 @@ Cura stores UI edits as user-level overrides. Those overrides can take precedenc
 
 ## Physical validation
 
-Clean the nozzle exterior while warm, then clean the build plate according to its surface requirements. Start with a small first-layer test saved directly to USB, not a long model. Confirm:
+Clean the nozzle exterior while warm, then clean the build plate according to its surface requirements. Start with a small first-layer test saved directly to USB, not a long model. First verify that the machine definition mechanically lowers the same nozzle Cura has selected; only then evaluate the quality profile. Confirm:
 
 - the generated G-code requests a 65 °C initial bed and 60 °C regular bed;
-- the active nozzle starts at 205 °C and settles to 200 °C;
+- the active Generic PLA nozzle starts at 205 °C and settles to 200 °C;
 - the brim and model first layer print at 15 mm/s;
 - first-layer travel moves are limited to 40 mm/s;
 - the brim touches the model and is approximately 10 mm wide;
@@ -155,16 +157,17 @@ Inspect generated temperatures with:
 grep -nE '^(M104|M109|M140|M190|T[01])' file.gcode | head -40
 ```
 
-Expected initial targets include `S205` for the active nozzle and `S65` for the bed. Later commands should reduce the targets to 200 °C and 60 °C.
+Expected initial targets include `S205` for a Generic PLA active nozzle and `S65` for the bed. Later commands should reduce the targets to 200 °C and 60 °C.
 
 For support validation, use a small bridge or overhang coupon rather than a long production print. Confirm that Cura shows 15% support density, an 80% interface, and 0.6 mm interface thickness. Verify the chosen support extruder and top distance manually before slicing. Inspect Preview to confirm that tool changes occur only where intended and that the interface is three layers thick.
 
 ## Failure interpretation
 
+- **Selected nozzle is visibly higher than the inactive nozzle:** stop; the mechanical tool latch is wrong. Fix the machine-definition/tool-state path before changing quality settings.
 - **Round, separate first-layer lines:** nozzle is too far from the bed or extrusion is obstructed. Correct physical calibration before profile tuning.
 - **Raised ridges, transparent areas, scraping, or filament accumulating on the nozzle:** nozzle is too close, flow is excessive, temperature is too high, or plastic is stuck to the nozzle exterior. Stop and correct the physical condition rather than adding more flow.
 - **Lines look properly flattened but detach:** clean the plate, verify bed temperature, and inspect for drafts or cooling that begins too early.
-- **The nozzle crosses and catches sound first-layer lines during a travel move:** verify the selected profile actually has combing off and 0.2 mm Z hop enabled; inspect G-code or Cura Preview for the travel path.
+- **The nozzle crosses and catches sound first-layer lines during a travel move:** verify that the active extruder's Generic PLA quality actually has combing off and 0.2 mm Z hop enabled; inspect G-code or Cura Preview for the travel path.
 - **The first layer holds but the model later becomes spaghetti:** inspect the sliced preview for unsupported geometry, verify support generation, and confirm the part was not struck by a nozzle or curled edge.
 
 Record the physical result in the pull request before promoting the profile from draft status.
