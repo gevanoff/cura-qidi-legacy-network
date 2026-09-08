@@ -9,6 +9,15 @@ from .client import QidiLegacyClient
 from .discovery import discover
 from .exceptions import QidiError, QidiUploadError
 
+IFAST_CENTER_X = 165.0
+IFAST_CENTER_Y = 125.0
+IFAST_LEFT_WALL_X = 0.0
+IFAST_RIGHT_WALL_X = 330.0
+IFAST_MOTION_X_LOW = 30.0
+IFAST_MOTION_X_HIGH = 300.0
+IFAST_MOTION_Y_LOW = 30.0
+IFAST_MOTION_Y_HIGH = 220.0
+
 
 def _client(args: argparse.Namespace) -> QidiLegacyClient:
     return QidiLegacyClient(args.host, port=args.port, timeout=args.timeout, retries=args.retries)
@@ -58,20 +67,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     z_test = subparsers.add_parser(
         "z-test",
-        help="guided i-Fast Z repeatability and nozzle-selector diagnostic",
+        help="guided i-Fast Z, XY-motion, and nozzle-selector diagnostic",
     )
     _add_network_args(z_test)
     z_test.add_argument(
         "--distance",
         type=float,
         default=5.0,
-        help="relative Z travel in mm; positive Z lowers the i-Fast bed (default: 5)",
+        help="clearance Z travel in mm; positive Z lowers the i-Fast bed (default: 5)",
     )
     z_test.add_argument(
         "--cycles",
         type=int,
         default=3,
-        help="number of away-and-return Z cycles (default: 3)",
+        help="number of basic away-and-return Z cycles (default: 3)",
     )
     z_test.add_argument(
         "--feed",
@@ -86,16 +95,132 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="nozzle being checked: 0 = right / Nozzle 1, 1 = left / Nozzle 2",
     )
+    z_test.add_argument(
+        "--zhop-cycles",
+        type=int,
+        default=100,
+        help="small 0.2 mm-style Z reversal cycles in the optional ZHOP phase (default: 100)",
+    )
+    z_test.add_argument(
+        "--zhop-distance",
+        type=float,
+        default=0.2,
+        help="small Z reversal distance in mm for the optional ZHOP phase (default: 0.2)",
+    )
+    z_test.add_argument(
+        "--xy-cycles",
+        type=int,
+        default=10,
+        help="rectangular carriage sweeps in the optional MOTION phase (default: 10)",
+    )
+    z_test.add_argument(
+        "--xy-feed",
+        type=float,
+        default=6000.0,
+        help="XY feed rate in mm/min for the optional MOTION phase (default: 6000)",
+    )
+    z_test.add_argument(
+        "--selector-cycles",
+        type=int,
+        default=3,
+        help="automatic wall-to-wall latch cycles in the optional SELECTOR phase (default: 3)",
+    )
+    z_test.add_argument(
+        "--selector-feed",
+        type=float,
+        default=3600.0,
+        help="wall-contact feed rate in mm/min for the SELECTOR phase (default: 3600)",
+    )
     return parser
 
 
+def _wait_for_motion(client: QidiLegacyClient) -> None:
+    client.command("M400")
+
+
 def _relative_z_move(client: QidiLegacyClient, delta: float, feed: float) -> None:
-    """Move Z relatively while always trying to restore absolute positioning."""
+    """Move Z relatively and wait, while always trying to restore absolute positioning."""
     client.command("G91")
     try:
         client.command(f"G0 Z{delta:g} F{feed:g}")
+        _wait_for_motion(client)
     finally:
         client.command("G90")
+
+
+def _absolute_xy_move(
+    client: QidiLegacyClient,
+    x: float,
+    y: float,
+    feed: float,
+    *,
+    wait: bool = True,
+) -> None:
+    client.command("G90")
+    client.command(f"G0 X{x:g} Y{y:g} F{feed:g}")
+    if wait:
+        _wait_for_motion(client)
+
+
+def _fine_z_reversal_stress(
+    client: QidiLegacyClient,
+    *,
+    distance: float,
+    cycles: int,
+    feed: float,
+) -> None:
+    client.command("G91")
+    try:
+        for _ in range(cycles):
+            client.command(f"G0 Z{distance:g} F{feed:g}")
+            client.command(f"G0 Z{-distance:g} F{feed:g}")
+        _wait_for_motion(client)
+    finally:
+        client.command("G90")
+
+
+def _xy_motion_stress(client: QidiLegacyClient, *, cycles: int, feed: float) -> None:
+    client.command("G90")
+    for _ in range(cycles):
+        client.command(
+            f"G0 X{IFAST_MOTION_X_LOW:g} Y{IFAST_MOTION_Y_LOW:g} F{feed:g}"
+        )
+        client.command(
+            f"G0 X{IFAST_MOTION_X_HIGH:g} Y{IFAST_MOTION_Y_LOW:g} F{feed:g}"
+        )
+        client.command(
+            f"G0 X{IFAST_MOTION_X_HIGH:g} Y{IFAST_MOTION_Y_HIGH:g} F{feed:g}"
+        )
+        client.command(
+            f"G0 X{IFAST_MOTION_X_LOW:g} Y{IFAST_MOTION_Y_HIGH:g} F{feed:g}"
+        )
+    client.command(f"G0 X{IFAST_CENTER_X:g} Y{IFAST_CENTER_Y:g} F{feed:g}")
+    _wait_for_motion(client)
+
+
+def _selector_stress(
+    client: QidiLegacyClient,
+    *,
+    tool: int,
+    cycles: int,
+    feed: float,
+) -> None:
+    """Cycle the i-Fast's physical wall latches, ending with the requested nozzle down."""
+    if tool == 0:
+        away_x = IFAST_LEFT_WALL_X
+        selected_x = IFAST_RIGHT_WALL_X
+    else:
+        away_x = IFAST_RIGHT_WALL_X
+        selected_x = IFAST_LEFT_WALL_X
+
+    client.command("G90")
+    for _ in range(cycles):
+        client.command(f"G0 X{away_x:g} Y{IFAST_CENTER_Y:g} F{feed:g}")
+        _wait_for_motion(client)
+        client.command(f"G0 X{selected_x:g} Y{IFAST_CENTER_Y:g} F{feed:g}")
+        _wait_for_motion(client)
+    client.command(f"G0 X{IFAST_CENTER_X:g} Y{IFAST_CENTER_Y:g} F{feed:g}")
+    _wait_for_motion(client)
 
 
 def _prompt_token(message: str, token: str) -> bool:
@@ -113,6 +238,29 @@ def _prompt_observation(message: str) -> str:
         return ""
 
 
+def _return_from_clearance(
+    client: QidiLegacyClient,
+    args: argparse.Namespace,
+    *,
+    stage: str,
+) -> tuple[bool, str | None, str | None]:
+    if not _prompt_token(
+        f"Type RETURN to bring the bed back toward the nozzle by {args.distance:g} mm; "
+        "anything else leaves it lowered and aborts: ",
+        "RETURN",
+    ):
+        return False, None, None
+
+    _relative_z_move(client, -args.distance, args.feed)
+    position = client.command("M114")
+    note = _prompt_observation(
+        f"Firmware position after return: {position}\n"
+        f"At X{IFAST_CENTER_X:g} Y{IFAST_CENTER_Y:g}, compare the SAME paper gap after {stage}. "
+        "Describe the drag: "
+    )
+    return True, position, note
+
+
 def _guided_z_test(client: QidiLegacyClient, args: argparse.Namespace) -> dict[str, object]:
     if args.distance <= 0:
         raise ValueError("--distance must be positive")
@@ -120,20 +268,32 @@ def _guided_z_test(client: QidiLegacyClient, args: argparse.Namespace) -> dict[s
         raise ValueError("--cycles must be at least 1")
     if args.feed <= 0:
         raise ValueError("--feed must be positive")
+    if args.zhop_cycles < 1:
+        raise ValueError("--zhop-cycles must be at least 1")
+    if args.zhop_distance <= 0:
+        raise ValueError("--zhop-distance must be positive")
+    if args.xy_cycles < 1:
+        raise ValueError("--xy-cycles must be at least 1")
+    if args.xy_feed <= 0:
+        raise ValueError("--xy-feed must be positive")
+    if args.selector_cycles < 1:
+        raise ValueError("--selector-cycles must be at least 1")
+    if args.selector_feed <= 0:
+        raise ValueError("--selector-feed must be positive")
 
     nozzle = "right / Nozzle 1 / T0" if args.tool == 0 else "left / Nozzle 2 / T1"
     print(
-        "\nGuided QIDI i-Fast Z repeatability test\n"
-        "--------------------------------------\n"
+        "\nGuided QIDI i-Fast motion/Z repeatability test\n"
+        "---------------------------------------------\n"
         "This test does NOT home the printer and does NOT modify the stored Z offset.\n"
         "Positive Z lowers the i-Fast bed away from the nozzle.\n"
         "Before continuing:\n"
-        "  1. Printer must be idle.\n"
+        "  1. Printer must be idle and X/Y must already have been homed.\n"
         "  2. Nozzle should be cool and the build plate clear.\n"
         f"  3. Fully latch {nozzle}.\n"
-        "  4. Put the carriage at a repeatable test point.\n"
+        f"  4. Put the carriage at X{IFAST_CENTER_X:g} Y{IFAST_CENTER_Y:g}.\n"
         "  5. Establish a SAFE paper gap at the current Z position.\n"
-        "The script will only move back toward the nozzle after you explicitly type RETURN.\n"
+        "The script only returns from a lowered-clearance position after you type RETURN.\n"
     )
 
     if not _prompt_token("Type READY to begin, or anything else to abort: ", "READY"):
@@ -148,7 +308,7 @@ def _guided_z_test(client: QidiLegacyClient, args: argparse.Namespace) -> dict[s
     cycle_results: list[dict[str, object]] = []
     for cycle in range(1, args.cycles + 1):
         print(
-            f"\nCycle {cycle}/{args.cycles}: lowering the bed by {args.distance:g} mm "
+            f"\nBasic Z cycle {cycle}/{args.cycles}: lowering the bed by {args.distance:g} mm "
             f"at F{args.feed:g}."
         )
         _relative_z_move(client, args.distance, args.feed)
@@ -158,19 +318,20 @@ def _guided_z_test(client: QidiLegacyClient, args: argparse.Namespace) -> dict[s
             "Confirm the bed physically moved away. Record any odd sound, hesitation, or measured travel: "
         )
 
-        if not _prompt_token(
-            f"Type RETURN to move the bed back toward the nozzle by {args.distance:g} mm; "
-            "anything else leaves the bed lowered and aborts: ",
-            "RETURN",
-        ):
-            cycle_results.append(
-                {
-                    "cycle": cycle,
-                    "away_position": away_position,
-                    "away_note": away_note,
-                    "returned": False,
-                }
-            )
+        returned, return_position, return_note = _return_from_clearance(
+            client, args, stage=f"basic Z cycle {cycle}"
+        )
+        cycle_results.append(
+            {
+                "cycle": cycle,
+                "away_position": away_position,
+                "away_note": away_note,
+                "return_position": return_position,
+                "return_note": return_note,
+                "returned": returned,
+            }
+        )
+        if not returned:
             return {
                 "aborted": True,
                 "stage": f"cycle_{cycle}_bed_lowered",
@@ -180,87 +341,141 @@ def _guided_z_test(client: QidiLegacyClient, args: argparse.Namespace) -> dict[s
                 "bed_left_lowered": True,
             }
 
-        _relative_z_move(client, -args.distance, args.feed)
-        return_position = client.command("M114")
-        return_note = _prompt_observation(
-            f"Firmware position after return: {return_position}\n"
-            "Check the SAME paper gap at the SAME XY point. Describe the drag now: "
-        )
-        cycle_results.append(
-            {
-                "cycle": cycle,
-                "away_position": away_position,
-                "away_note": away_note,
-                "return_position": return_position,
-                "return_note": return_note,
-                "returned": True,
-            }
-        )
+    optional_results: dict[str, object] = {}
 
-    selector_result: dict[str, object] | None = None
     print(
-        "\nOptional nozzle-selector repeatability phase:\n"
-        "The script can lower the bed to create clearance, then pause while you cycle the nozzle selector.\n"
-        "This is useful for detecting whether the selected hotend settles to a different vertical height."
+        "\nOptional fine Z-reversal phase:\n"
+        f"This lowers the bed {args.distance:g} mm for clearance, then performs "
+        f"{args.zhop_cycles} pairs of +/-{args.zhop_distance:g} mm Z moves.\n"
+        "This more closely exercises the repeated small Z-hop reversals used during a print."
     )
-    if _prompt_token("Type SELECTOR to run this phase, or anything else to finish: ", "SELECTOR"):
+    if _prompt_token("Type ZHOP to run it, or anything else to skip: ", "ZHOP"):
         _relative_z_move(client, args.distance, args.feed)
-        selector_away_position = client.command("M114")
-        print(
-            f"Bed is lowered by {args.distance:g} mm. Firmware position: {selector_away_position}\n"
-            f"Using the printer controls, switch away from {nozzle} and back to it several times.\n"
-            "Finish with the SAME nozzle fully latched, and return the carriage to the SAME XY test point.\n"
-            "Do not intentionally change Z."
+        away_position = client.command("M114")
+        _fine_z_reversal_stress(
+            client,
+            distance=args.zhop_distance,
+            cycles=args.zhop_cycles,
+            feed=args.feed,
         )
-        selector_note = _prompt_observation(
-            "Press Enter when finished, or record anything unusual before continuing: "
+        stressed_position = client.command("M114")
+        stress_note = _prompt_observation(
+            f"Fine-Z stress finished. Before: {away_position}; after: {stressed_position}\n"
+            "Visually confirm the bed is still safely clear. Record any sound or motion anomaly: "
         )
-        selector_before_return = client.command("M114")
+        returned, return_position, return_note = _return_from_clearance(
+            client, args, stage="fine Z-reversal stress"
+        )
+        optional_results["zhop"] = {
+            "away_position": away_position,
+            "stressed_position": stressed_position,
+            "stress_note": stress_note,
+            "return_position": return_position,
+            "return_note": return_note,
+            "returned": returned,
+        }
+        if not returned:
+            return {
+                "aborted": True,
+                "stage": "zhop_bed_lowered",
+                "baseline_position": baseline_position,
+                "baseline_note": baseline_note,
+                "cycles": cycle_results,
+                "optional": optional_results,
+                "bed_left_lowered": True,
+            }
 
-        if not _prompt_token(
-            f"Type RETURN to bring the bed back by {args.distance:g} mm; "
-            "anything else leaves it safely lowered and aborts: ",
-            "RETURN",
-        ):
+    print(
+        "\nOptional XY-motion stress phase:\n"
+        f"This lowers the bed {args.distance:g} mm, then makes {args.xy_cycles} fast rectangular "
+        "carriage sweeps while staying away from both nozzle-selector walls.\n"
+        "It tests whether ordinary print-like carriage motion or vibration changes the nozzle height."
+    )
+    if _prompt_token("Type MOTION to run it, or anything else to skip: ", "MOTION"):
+        _relative_z_move(client, args.distance, args.feed)
+        away_position = client.command("M114")
+        _xy_motion_stress(client, cycles=args.xy_cycles, feed=args.xy_feed)
+        stressed_position = client.command("M114")
+        stress_note = _prompt_observation(
+            f"XY stress finished at X{IFAST_CENTER_X:g} Y{IFAST_CENTER_Y:g}. "
+            f"Firmware position: {stressed_position}\n"
+            "Record any looseness, clicking, nozzle movement, or other anomaly you noticed: "
+        )
+        returned, return_position, return_note = _return_from_clearance(
+            client, args, stage="XY-motion stress"
+        )
+        optional_results["motion"] = {
+            "away_position": away_position,
+            "stressed_position": stressed_position,
+            "stress_note": stress_note,
+            "return_position": return_position,
+            "return_note": return_note,
+            "returned": returned,
+        }
+        if not returned:
+            return {
+                "aborted": True,
+                "stage": "motion_bed_lowered",
+                "baseline_position": baseline_position,
+                "baseline_note": baseline_note,
+                "cycles": cycle_results,
+                "optional": optional_results,
+                "bed_left_lowered": True,
+            }
+
+    print(
+        "\nOptional automatic nozzle-selector phase:\n"
+        f"This lowers the bed {args.distance:g} mm, then automatically traverses between the two "
+        f"latch walls {args.selector_cycles} times at F{args.selector_feed:g}.\n"
+        f"It ends with {nozzle} physically latched, then returns to X{IFAST_CENTER_X:g} "
+        f"Y{IFAST_CENTER_Y:g} for the paper-gap comparison."
+    )
+    if _prompt_token("Type SELECTOR to run it, or anything else to finish: ", "SELECTOR"):
+        _relative_z_move(client, args.distance, args.feed)
+        away_position = client.command("M114")
+        _selector_stress(
+            client,
+            tool=args.tool,
+            cycles=args.selector_cycles,
+            feed=args.selector_feed,
+        )
+        stressed_position = client.command("M114")
+        stress_note = _prompt_observation(
+            f"Selector cycling finished with {nozzle} latched and the carriage centered.\n"
+            f"Firmware position: {stressed_position}\n"
+            "Record any incomplete latch, odd sound, or visibly different nozzle position: "
+        )
+        returned, return_position, return_note = _return_from_clearance(
+            client, args, stage="automatic selector cycling"
+        )
+        optional_results["selector"] = {
+            "away_position": away_position,
+            "stressed_position": stressed_position,
+            "stress_note": stress_note,
+            "return_position": return_position,
+            "return_note": return_note,
+            "returned": returned,
+        }
+        if not returned:
             return {
                 "aborted": True,
                 "stage": "selector_bed_lowered",
                 "baseline_position": baseline_position,
                 "baseline_note": baseline_note,
                 "cycles": cycle_results,
-                "selector": {
-                    "away_position": selector_away_position,
-                    "before_return_position": selector_before_return,
-                    "selector_note": selector_note,
-                    "returned": False,
-                },
+                "optional": optional_results,
                 "bed_left_lowered": True,
             }
-
-        _relative_z_move(client, -args.distance, args.feed)
-        selector_return_position = client.command("M114")
-        selector_return_note = _prompt_observation(
-            f"Firmware position after selector phase return: {selector_return_position}\n"
-            "Check the SAME paper gap again. Describe the drag now: "
-        )
-        selector_result = {
-            "away_position": selector_away_position,
-            "before_return_position": selector_before_return,
-            "selector_note": selector_note,
-            "return_position": selector_return_position,
-            "return_note": selector_return_note,
-            "returned": True,
-        }
 
     return {
         "aborted": False,
         "baseline_position": baseline_position,
         "baseline_note": baseline_note,
         "cycles": cycle_results,
-        "selector": selector_result,
+        "optional": optional_results,
         "warning": (
             "M114 reports firmware coordinates only; compare them with the physical paper-gap "
-            "observations to detect mechanical drift or lost Z motion"
+            "observations to detect mechanical drift or lost motion"
         ),
     }
 

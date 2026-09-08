@@ -54,10 +54,29 @@ def test_z_test_requires_ready_before_sending_motion(monkeypatch) -> None:
     assert fake.commands == []
 
 
+def test_relative_z_move_waits_and_restores_absolute_mode() -> None:
+    fake = FakeClient()
+
+    cli._relative_z_move(fake, 5, 300)
+
+    assert fake.commands == ["G91", "G0 Z5 F300", "M400", "G90"]
+
+
 def test_z_test_moves_away_and_returns_only_after_confirmation(monkeypatch) -> None:
     fake = FakeClient()
     monkeypatch.setattr(cli, "_client", lambda args: fake)
-    answers = iter(["READY", "light", "moved normally", "RETURN", "light", "SKIP"])
+    answers = iter(
+        [
+            "READY",
+            "light",
+            "moved normally",
+            "RETURN",
+            "light",
+            "SKIP",
+            "SKIP",
+            "SKIP",
+        ]
+    )
     monkeypatch.setattr(builtins, "input", lambda prompt: next(answers))
     args = cli.build_parser().parse_args(
         ["z-test", "10.10.22.171", "--cycles", "1", "--distance", "5"]
@@ -69,26 +88,20 @@ def test_z_test_moves_away_and_returns_only_after_confirmation(monkeypatch) -> N
         "M114",
         "G91",
         "G0 Z5 F300",
+        "M400",
         "G90",
         "M114",
         "G91",
         "G0 Z-5 F300",
+        "M400",
         "G90",
         "M114",
     ]
     assert result["aborted"] is False
     assert result["baseline_note"] == "light"
-    assert result["cycles"] == [
-        {
-            "cycle": 1,
-            "away_position": "X:100.00 Y:100.00 Z:2.00",
-            "away_note": "moved normally",
-            "return_position": "X:100.00 Y:100.00 Z:3.00",
-            "return_note": "light",
-            "returned": True,
-        }
-    ]
-    assert result["selector"] is None
+    assert result["cycles"][0]["returned"] is True
+    assert result["cycles"][0]["return_note"] == "light"
+    assert result["optional"] == {}
 
 
 def test_z_test_abort_after_away_move_leaves_bed_lowered(monkeypatch) -> None:
@@ -106,6 +119,7 @@ def test_z_test_abort_after_away_move_leaves_bed_lowered(monkeypatch) -> None:
         "M114",
         "G91",
         "G0 Z2 F300",
+        "M400",
         "G90",
         "M114",
     ]
@@ -114,7 +128,76 @@ def test_z_test_abort_after_away_move_leaves_bed_lowered(monkeypatch) -> None:
     assert result["stage"] == "cycle_1_bed_lowered"
 
 
-def test_z_test_selector_phase_pauses_with_clearance(monkeypatch) -> None:
+def test_fine_z_stress_returns_to_absolute_mode() -> None:
+    fake = FakeClient()
+
+    cli._fine_z_reversal_stress(fake, distance=0.2, cycles=2, feed=300)
+
+    assert fake.commands == [
+        "G91",
+        "G0 Z0.2 F300",
+        "G0 Z-0.2 F300",
+        "G0 Z0.2 F300",
+        "G0 Z-0.2 F300",
+        "M400",
+        "G90",
+    ]
+
+
+def test_xy_motion_stress_avoids_selector_walls_and_recenters() -> None:
+    fake = FakeClient()
+
+    cli._xy_motion_stress(fake, cycles=1, feed=6000)
+
+    assert fake.commands == [
+        "G90",
+        "G0 X30 Y30 F6000",
+        "G0 X300 Y30 F6000",
+        "G0 X300 Y220 F6000",
+        "G0 X30 Y220 F6000",
+        "G0 X165 Y125 F6000",
+        "M400",
+    ]
+    assert all("X0 " not in command and "X330 " not in command for command in fake.commands)
+
+
+def test_selector_stress_cycles_walls_and_ends_with_t0_latched() -> None:
+    fake = FakeClient()
+
+    cli._selector_stress(fake, tool=0, cycles=2, feed=3600)
+
+    assert fake.commands == [
+        "G90",
+        "G0 X0 Y125 F3600",
+        "M400",
+        "G0 X330 Y125 F3600",
+        "M400",
+        "G0 X0 Y125 F3600",
+        "M400",
+        "G0 X330 Y125 F3600",
+        "M400",
+        "G0 X165 Y125 F3600",
+        "M400",
+    ]
+
+
+def test_selector_stress_cycles_walls_and_ends_with_t1_latched() -> None:
+    fake = FakeClient()
+
+    cli._selector_stress(fake, tool=1, cycles=1, feed=3600)
+
+    assert fake.commands == [
+        "G90",
+        "G0 X330 Y125 F3600",
+        "M400",
+        "G0 X0 Y125 F3600",
+        "M400",
+        "G0 X165 Y125 F3600",
+        "M400",
+    ]
+
+
+def test_z_test_selector_phase_is_automatic(monkeypatch) -> None:
     fake = FakeClient()
     monkeypatch.setattr(cli, "_client", lambda args: fake)
     answers = iter(
@@ -124,39 +207,33 @@ def test_z_test_selector_phase_pauses_with_clearance(monkeypatch) -> None:
             "normal",
             "RETURN",
             "light",
+            "SKIP",
+            "SKIP",
             "SELECTOR",
-            "selector cycled",
+            "selector looked normal",
             "RETURN",
             "light",
         ]
     )
     monkeypatch.setattr(builtins, "input", lambda prompt: next(answers))
     args = cli.build_parser().parse_args(
-        ["z-test", "10.10.22.171", "--cycles", "1", "--distance", "3"]
+        [
+            "z-test",
+            "10.10.22.171",
+            "--cycles",
+            "1",
+            "--distance",
+            "3",
+            "--selector-cycles",
+            "1",
+        ]
     )
 
     result = cli.run(args)
 
-    assert fake.commands == [
-        "M114",
-        "G91",
-        "G0 Z3 F300",
-        "G90",
-        "M114",
-        "G91",
-        "G0 Z-3 F300",
-        "G90",
-        "M114",
-        "G91",
-        "G0 Z3 F300",
-        "G90",
-        "M114",
-        "M114",
-        "G91",
-        "G0 Z-3 F300",
-        "G90",
-        "M114",
-    ]
-    assert result["aborted"] is False
-    assert result["selector"]["selector_note"] == "selector cycled"
-    assert result["selector"]["returned"] is True
+    selector = result["optional"]["selector"]
+    assert selector["stress_note"] == "selector looked normal"
+    assert selector["returned"] is True
+    assert "G0 X0 Y125 F3600" in fake.commands
+    assert "G0 X330 Y125 F3600" in fake.commands
+    assert "G0 X165 Y125 F3600" in fake.commands
