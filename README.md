@@ -43,10 +43,26 @@ The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura ma
 - two 0.4 mm extruders using 1.75 mm filament;
 - Marlin-flavor G-code;
 - heated-bed support;
-- minimal start/end G-code without unvalidated XY purge or parking moves;
+- the QIDI-reference startup purge/latch sequence required by the i-Fast's mechanical tool selector;
+- per-extruder wall/end positions that make Cura emit the required latch travel before tool changes;
+- corrected post-switch start-position bookkeeping for current CuraEngine;
 - zero slicer-side nozzle offsets while firmware calibration ownership is tested;
 - a Git-managed **0.20 mm Reliable** profile selected by the default Normal quality type;
-- a Generic PLA overlay with explicit initial and regular nozzle and bed temperatures.
+- a Generic PLA overlay with explicit initial and regular nozzle and bed temperatures plus
+  extruder-scoped reliability controls.
+
+On the physically tested i-Fast, **Extruder 1 / T0 is the right nozzle** and **Extruder 2 / T1 is
+the left nozzle**. Tool selection is mechanical: the carriage must contact the corresponding side
+of the enclosure to move the requested nozzle into the down/printing position. A plain `G28` is not
+sufficient. G-code that homes and immediately prints can leave the inactive nozzle down while the
+active nozzle extrudes above the build surface.
+
+The startup and latch values are derived from QIDI's open-source `Qidi-Print` i-Fast resources and
+were reconciled against current CuraEngine behavior after reproducing the failure on the physical
+printer. CuraEngine emits a real travel to `machine_extruder_end_pos_x/y` before changing tools; the
+new tool's start position is bookkeeping rather than a second emitted move. Startup primes both
+tools, then restores `T{initial_extruder_nr}` and contacts the matching wall so the logical Cura tool
+and physical lowered nozzle agree before first-layer extrusion.
 
 The reliability-first profile uses a 0.30 mm initial layer, 15 mm/s first-layer and brim speed,
 120% initial-layer line width at 100% flow, a zero-gap 10 mm brim, and no fan on the first layer.
@@ -57,14 +73,15 @@ through deposited filament. General and infill speed are capped at 45 mm/s, with
 top/bottom surfaces.
 
 These values still require physical first-layer validation because a profile cannot correct an
-incorrect nozzle gap, dirty build surface, loose bed, obstructed extrusion path, or plastic stuck to
-the nozzle exterior. The previous 108% initial/brim flow was removed after a physical print formed
-material that adhered to the nozzle and was dragged across the plate.
+incorrect nozzle gap, dirty build surface, loose bed, obstructed extrusion path, plastic stuck to
+the nozzle exterior, or a failed mechanical tool latch. The previous 108% initial/brim flow was
+removed after a physical print formed material that adhered to the nozzle and was dragged across the
+plate.
 
 The profile does not automatically enable supports, choose a support extruder, or force a support
-Z-gap; those depend on model geometry, verified T0/T1 mapping, and the actual support material. The
-printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes and
-safe limits can be represented without allowing invalid dual-nozzle placement.
+Z-gap; those depend on model geometry and the actual support material. The printer advertises a
+wider single-nozzle envelope, but that is not exposed until carriage modes and safe limits can be
+represented without allowing invalid dual-nozzle placement.
 
 A staged validation plan and a small two-part checkerboard model are included in:
 
@@ -201,8 +218,8 @@ discovery remains a later enhancement; manual address management is the primary 
 2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
    a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
 3. Add in-Cura address management. **Complete and physically validated.**
-4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition, quality
-   profiles, and test assets implemented; physical slicing and printer validation pending.**
+4. Add the i-Fast machine definition and dual-extruder profiles. **Quality profiles and startup/tool
+   latching are implemented and source-validated; combined physical dual-extruder validation remains.**
 5. Add automatic discovery and multi-interface handling.
 6. Add monitoring and controls after the connection and profile paths are stable. **Read-only
    monitoring implementation started; physical Cura validation remains.**
