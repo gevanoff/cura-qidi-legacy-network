@@ -44,16 +44,32 @@ The development installer now adds a visible **QIDI Tech > QIDI i-Fast** Cura ma
 - Marlin-flavor G-code;
 - heated-bed support;
 - minimal start/end G-code without unvalidated XY purge or parking moves;
-- zero slicer-side nozzle offsets while firmware calibration ownership is tested.
+- zero slicer-side nozzle offsets while firmware calibration ownership is tested;
+- a Git-managed **0.20 mm Reliable** profile selected by the default Normal quality type;
+- a Generic PLA overlay with explicit initial and regular nozzle and bed temperatures.
 
-The definition intentionally uses Cura's generic material and quality profiles at this stage. PLA,
-PETG, standby-temperature, purge, and retraction overrides will be added only after physical tests.
-The printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes
-and safe limits can be represented without allowing invalid dual-nozzle placement.
+The reliability-first profile uses a 0.30 mm initial layer, 15 mm/s first-layer and brim speed,
+120% initial-layer line width at 100% flow, a zero-gap 10 mm brim, and no fan on the first layer.
+Generic PLA starts at 205 °C nozzle and 65 °C bed, then settles to 200 °C and 60 °C. Initial-layer
+travel is limited to 40 mm/s and the first four layers increase speed gradually. Retraction is
+explicitly enabled with combing off and a 0.2 mm Z hop to reduce the chance of the nozzle dragging
+through deposited filament. General and infill speed are capped at 45 mm/s, with slower walls and
+top/bottom surfaces.
+
+These values still require physical first-layer validation because a profile cannot correct an
+incorrect nozzle gap, dirty build surface, loose bed, obstructed extrusion path, or plastic stuck to
+the nozzle exterior. The previous 108% initial/brim flow was removed after a physical print formed
+material that adhered to the nozzle and was dragged across the plate.
+
+The profile does not automatically enable supports, choose a support extruder, or force a support
+Z-gap; those depend on model geometry, verified T0/T1 mapping, and the actual support material. The
+printer advertises a wider single-nozzle envelope, but that is not exposed until carriage modes and
+safe limits can be represented without allowing invalid dual-nozzle placement.
 
 A staged validation plan and a small two-part checkerboard model are included in:
 
 - `docs/qidi-ifast-dual-extruder-testing.md`
+- `docs/qidi-ifast-quality-profiles.md`
 - `test_models/dual_checker/`
 
 ## Network transport reliability
@@ -153,9 +169,15 @@ C:\Users\name\AppData\Roaming\cura\5.13\plugins\QidiLegacyNetwork
 C:\Users\name\AppData\Roaming\cura\5.13\definitions\qidi_ifast.def.json
 C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_0.def.json
 C:\Users\name\AppData\Roaming\cura\5.13\extruders\qidi_ifast_extruder_1.def.json
+C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal.inst.cfg
+C:\Users\name\AppData\Roaming\cura\5.13\quality\qidi_ifast\qidi_ifast_normal_generic_pla.inst.cfg
 ```
 
-Restart Cura, add **QIDI Tech > QIDI i-Fast**, slice a model, and open the output-action dropdown.
+Restart Cura, add **QIDI Tech > QIDI i-Fast**, select **0.20 mm Reliable** and **Generic PLA**, and
+discard stale custom changes when Cura asks whether to retain them. If Cura still displays old
+values, remove and re-add the QIDI i-Fast machine. Then slice a small first-layer test before using a
+production model.
+
 The development plugin provides:
 
 - **Upload to QIDI** — transfers the G-code, checks its remote filename and byte count, and never
@@ -179,8 +201,8 @@ discovery remains a later enhancement; manual address management is the primary 
 2. Implement and validate the Cura 5.13 network output device. **Validated over wired Ethernet with
    a 56.7 MB job; Wi-Fi is not recommended for large transfers.**
 3. Add in-Cura address management. **Complete and physically validated.**
-4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition and test assets
-   implemented; physical slicing and printer validation pending.**
+4. Add the i-Fast machine definition and dual-extruder profiles. **Initial definition, quality
+   profiles, and test assets implemented; physical slicing and printer validation pending.**
 5. Add automatic discovery and multi-interface handling.
 6. Add monitoring and controls after the connection and profile paths are stable. **Read-only
    monitoring implementation started; physical Cura validation remains.**

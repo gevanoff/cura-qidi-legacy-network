@@ -1,3 +1,4 @@
+import configparser
 import json
 from pathlib import Path
 
@@ -8,12 +9,20 @@ def _load(relative_path: str) -> dict:
     return json.loads((RESOURCE_ROOT / relative_path).read_text(encoding="utf-8"))
 
 
+def _load_quality(relative_path: str) -> configparser.ConfigParser:
+    profile = configparser.ConfigParser(interpolation=None)
+    profile.read(RESOURCE_ROOT / relative_path, encoding="utf-8")
+    return profile
+
+
 def test_machine_definition_declares_two_extruders_and_dual_build_volume() -> None:
     definition = _load("definitions/qidi_ifast.def.json")
 
     assert definition["version"] == 2
     assert definition["inherits"] == "fdmprinter"
     assert definition["metadata"]["supports_network_connection"] is True
+    assert definition["metadata"]["has_machine_quality"] is True
+    assert definition["metadata"]["preferred_quality_type"] == "normal"
     assert definition["metadata"]["machine_extruder_trains"] == {
         "0": "qidi_ifast_extruder_0",
         "1": "qidi_ifast_extruder_1",
@@ -27,7 +36,7 @@ def test_machine_definition_declares_two_extruders_and_dual_build_volume() -> No
     assert overrides["machine_gcode_flavor"]["default_value"] == "Marlin"
 
 
-def test_extruder_definitions_are_numbered_and_start_with_zero_slicer_offsets() -> None:
+def test_extruder_definitions_are_numbered_and_share_machine_quality_definition() -> None:
     first = _load("extruders/qidi_ifast_extruder_0.def.json")
     second = _load("extruders/qidi_ifast_extruder_1.def.json")
 
@@ -42,6 +51,103 @@ def test_extruder_definitions_are_numbered_and_start_with_zero_slicer_offsets() 
         assert overrides["material_diameter"]["default_value"] == 1.75
         assert overrides["machine_extruder_offset_x"]["default_value"] == 0.0
         assert overrides["machine_extruder_offset_y"]["default_value"] == 0.0
+
+
+def test_global_quality_profile_contains_only_machine_wide_reliable_baseline() -> None:
+    profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
+
+    assert profile["general"]["definition"] == "qidi_ifast"
+    assert profile["general"]["name"] == "0.20 mm Reliable"
+    assert profile["metadata"].getboolean("global_quality") is True
+    assert profile["metadata"]["quality_type"] == "normal"
+    assert profile["metadata"].getint("setting_version") == 27
+
+    values = profile["values"]
+    assert values.getfloat("layer_height") == 0.20
+    assert values.getfloat("layer_height_0") == 0.30
+    assert values["adhesion_type"] == "brim"
+    assert values.getfloat("brim_gap") == 0
+    assert values.getfloat("brim_width") == 10
+
+    # These controls are evaluated on each ExtruderStack and therefore belong
+    # in the material-matched non-global quality container, not here.
+    extruder_scoped_keys = {
+        "cool_fan_speed_0",
+        "initial_layer_line_width_factor",
+        "material_flow_layer_0",
+        "retraction_enable",
+        "retraction_hop_enabled",
+        "skirt_brim_speed",
+        "speed_layer_0",
+        "speed_print",
+        "speed_travel",
+        "travel_retract_before_outer_wall",
+    }
+    assert extruder_scoped_keys.isdisjoint(values)
+
+
+def test_global_quality_profile_defines_conservative_support_baseline() -> None:
+    profile = _load_quality("quality/qidi_ifast/qidi_ifast_normal.inst.cfg")
+    values = profile["values"]
+
+    assert values.getfloat("support_infill_rate") == 15
+    assert values["support_pattern"] == "zigzag"
+    assert values.getint("support_wall_count") == 1
+    assert values.getboolean("support_interface_enable") is True
+    assert values.getfloat("support_interface_density") == 80
+    assert values.getfloat("support_interface_height") == 0.6
+    assert values["support_interface_pattern"] == "zigzag"
+    assert "support_enable" not in values
+    assert "support_infill_extruder_nr" not in values
+    assert "support_interface_extruder_nr" not in values
+    assert "support_top_distance" not in values
+
+
+def test_generic_pla_quality_applies_extruder_scoped_reliability_controls() -> None:
+    profile = _load_quality(
+        "quality/qidi_ifast/qidi_ifast_normal_generic_pla.inst.cfg"
+    )
+
+    assert profile["general"]["definition"] == "qidi_ifast"
+    assert profile["general"]["name"] == "0.20 mm Reliable"
+    assert "global_quality" not in profile["metadata"]
+    assert profile["metadata"]["material"] == "generic_pla"
+    assert profile["metadata"]["quality_type"] == "normal"
+    assert profile["metadata"].getint("setting_version") == 27
+
+    values = profile["values"]
+    assert values.getfloat("material_print_temperature") == 200
+    assert values.getfloat("material_print_temperature_layer_0") == 205
+    assert values.getfloat("material_bed_temperature") == 60
+    assert values.getfloat("material_bed_temperature_layer_0") == 65
+
+    assert values.getfloat("speed_layer_0") == 15
+    assert values.getfloat("skirt_brim_speed") == 15
+    assert values.getfloat("speed_travel_layer_0") == 40
+    assert values.getfloat("initial_layer_line_width_factor") == 120
+    assert values.getfloat("material_flow_layer_0") == 100
+    assert values.getfloat("skirt_brim_material_flow") == 100
+    assert values.getfloat("cool_fan_speed_0") == 0
+    assert values.getint("cool_fan_full_layer") == 4
+    assert values.getfloat("cool_min_layer_time") == 10
+    assert values.getint("speed_slowdown_layers") == 4
+
+    assert values.getboolean("retraction_enable") is True
+    assert values["retraction_combing"] == "off"
+    assert values.getfloat("retraction_min_travel") == 1.5
+    assert values.getboolean("retraction_hop_enabled") is True
+    assert values.getboolean("retraction_hop_only_when_collides") is False
+    assert values.getfloat("retraction_hop") == 0.2
+    assert values.getfloat("speed_z_hop") == 5
+    assert values["travel_retract_before_outer_wall"] == "force_retracted"
+    assert values.getboolean("infill_before_walls") is False
+
+    assert values.getfloat("speed_print") == 45
+    assert values.getfloat("speed_infill") == 45
+    assert values.getfloat("speed_wall") == 30
+    assert values.getfloat("speed_wall_0") == 25
+    assert values.getfloat("speed_topbottom") == 30
+    assert values.getfloat("speed_travel") == 100
 
 
 def test_start_and_end_gcode_do_not_contain_unvalidated_xy_purge_moves() -> None:
