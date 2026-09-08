@@ -36,14 +36,32 @@ def test_machine_definition_declares_two_extruders_and_dual_build_volume() -> No
     assert overrides["machine_gcode_flavor"]["default_value"] == "Marlin"
 
 
-def test_extruder_definitions_are_numbered_and_share_machine_quality_definition() -> None:
+def test_extruder_definitions_match_ifast_tool_sides_and_latch_positions() -> None:
     first = _load("extruders/qidi_ifast_extruder_0.def.json")
     second = _load("extruders/qidi_ifast_extruder_1.def.json")
 
+    assert first["name"] == "Extruder 1 (T0, right)"
+    assert second["name"] == "Extruder 2 (T1, left)"
     assert first["metadata"] == {"machine": "qidi_ifast", "position": "0"}
     assert second["metadata"] == {"machine": "qidi_ifast", "position": "1"}
     assert first["overrides"]["extruder_nr"]["default_value"] == 0
     assert second["overrides"]["extruder_nr"]["default_value"] == 1
+
+    # CuraEngine emits an actual travel to the old tool's end position before
+    # the T command. On the i-Fast that wall contact mechanically lowers the
+    # tool being selected next: T0 -> X0 selects T1, T1 -> X330 selects T0.
+    assert first["overrides"]["machine_extruder_end_pos_abs"]["default_value"] is True
+    assert second["overrides"]["machine_extruder_end_pos_abs"]["default_value"] is True
+    assert first["overrides"]["machine_extruder_end_pos_x"]["value"] == 0
+    assert second["overrides"]["machine_extruder_end_pos_x"]["value"] == 330
+
+    # Current CuraEngine treats the new tool's start position as bookkeeping,
+    # not an emitted move, so it must describe the wall position actually
+    # reached by the previous tool's end travel.
+    assert first["overrides"]["machine_extruder_start_pos_abs"]["default_value"] is True
+    assert second["overrides"]["machine_extruder_start_pos_abs"]["default_value"] is True
+    assert first["overrides"]["machine_extruder_start_pos_x"]["value"] == 330
+    assert second["overrides"]["machine_extruder_start_pos_x"]["value"] == 0
 
     for extruder in (first, second):
         overrides = extruder["overrides"]
@@ -150,18 +168,42 @@ def test_generic_pla_quality_applies_extruder_scoped_reliability_controls() -> N
     assert values.getfloat("speed_travel") == 100
 
 
-def test_start_and_end_gcode_do_not_contain_unvalidated_xy_purge_moves() -> None:
+def test_start_gcode_primes_both_tools_and_restores_initial_latch() -> None:
     definition = _load("definitions/qidi_ifast.def.json")
     start = definition["overrides"]["machine_start_gcode"]["default_value"]
     end = definition["overrides"]["machine_end_gcode"]["default_value"]
+    lines = start.splitlines()
 
-    assert "G28" in start
-    assert "M82" in start
-    assert "T0" not in start
-    assert "T1" not in start
+    assert lines[:4] == [
+        "G21 ; millimeters",
+        "G90 ; absolute positioning",
+        "M82 ; absolute extrusion",
+        "G28",
+    ]
+    assert "G0 X0 Y0 Z50 F3600" in lines
+
+    # QIDI's reference sequence primes T1/left and then T0/right.
+    left_select = lines.index("T1")
+    left_sweep = lines.index("G1 X{machine_width} E0 F2400")
+    right_select = lines.index("T0")
+    right_latch = lines.index("G0 X{machine_width} Y4 F3600")
+    right_wipe = lines.index("G1 X5 E0 F2400")
+    assert left_select < left_sweep < right_select < right_latch < right_wipe
+    assert lines.count("G92 E-19") == 2
+
+    # Cura tracks the slice's initial tool independently of custom start G-code.
+    # Restore that tool and its physical wall latch after priming both nozzles.
+    restore_select = lines.index("T{initial_extruder_nr}")
+    if_marker = lines.index("{if initial_extruder_nr == 0}")
+    restore_right = lines.index("G0 X{machine_width} Y4 F3600", right_latch + 1)
+    else_marker = lines.index("{else}")
+    restore_left = lines.index("G0 X0 Y6 F3600")
+    endif_marker = lines.index("{endif}")
+    assert right_wipe < restore_select < if_marker < restore_right
+    assert restore_right < else_marker < restore_left < endif_marker
+    assert lines[-1] == "G92 E0"
+
     assert "M104 T0 S0" in end
     assert "M104 T1 S0" in end
-    assert "G1 X" not in start
-    assert "G1 Y" not in start
     assert "G1 X" not in end
     assert "G1 Y" not in end
