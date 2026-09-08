@@ -33,7 +33,8 @@ def test_machine_definition_declares_two_extruders_and_dual_build_volume() -> No
     assert overrides["machine_depth"]["default_value"] == 250
     assert overrides["machine_height"]["default_value"] == 320
     assert overrides["machine_extruder_count"]["default_value"] == 2
-    assert overrides["machine_gcode_flavor"]["default_value"] == "Marlin"
+    # Cura's UI label is "Marlin", but enum defaults must use the internal option key.
+    assert overrides["machine_gcode_flavor"]["default_value"] == "RepRap (Marlin/Sprinter)"
 
 
 def test_extruder_definitions_match_ifast_tool_sides_and_latch_positions() -> None:
