@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import sys
 
+import pytest
+
 from qidi_legacy import diagnostic_cli
 
 
@@ -59,6 +61,32 @@ def test_reported_z_rejects_malformed_m114() -> None:
         raise AssertionError("expected malformed M114 response to fail")
 
 
+def test_default_xy_motion_timeout_covers_full_queued_path() -> None:
+    distance = diagnostic_cli._xy_motion_distance(10)
+    timeout = diagnostic_cli._xy_motion_timeout(10, 6000)
+
+    assert distance == pytest.approx(9340.15, abs=0.1)
+    assert timeout > 150
+    assert timeout < 160
+
+
+def test_xy_motion_stress_uses_computed_timeout_and_recenters() -> None:
+    fake = FakeClient()
+
+    diagnostic_cli._xy_motion_stress(fake, cycles=1, feed=6000)
+
+    expected_timeout = diagnostic_cli._xy_motion_timeout(1, 6000)
+    assert fake.calls == [
+        ("G90", None, None),
+        ("G0 X30 Y30 F6000", None, None),
+        ("G0 X300 Y30 F6000", None, None),
+        ("G0 X300 Y220 F6000", None, None),
+        ("G0 X30 Y220 F6000", None, None),
+        ("G0 X165 Y125 F6000", None, None),
+        ("M400", expected_timeout, 1),
+    ]
+
+
 def test_selector_stress_uses_front_lane_and_recenters_for_t0() -> None:
     fake = FakeClient()
 
@@ -105,4 +133,5 @@ def test_diagnostic_entry_point_inserts_z_test_subcommand_and_patches_helpers(mo
     assert seen == [["qidi-z-test", "z-test", "printer.local", "--tool", "0"]]
     assert diagnostic_cli.cli._wait_for_motion is diagnostic_cli._wait_for_motion
     assert diagnostic_cli.cli._fine_z_reversal_stress is diagnostic_cli._fine_z_reversal_stress
+    assert diagnostic_cli.cli._xy_motion_stress is diagnostic_cli._xy_motion_stress
     assert diagnostic_cli.cli._selector_stress is diagnostic_cli._selector_stress
