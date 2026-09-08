@@ -169,10 +169,9 @@ def test_generic_pla_quality_applies_extruder_scoped_reliability_controls() -> N
     assert values.getfloat("speed_travel") == 100
 
 
-def test_start_gcode_primes_both_tools_and_restores_initial_latch() -> None:
+def test_start_gcode_primes_only_enabled_tool_for_single_extrusion() -> None:
     definition = _load("definitions/qidi_ifast.def.json")
     start = definition["overrides"]["machine_start_gcode"]["default_value"]
-    end = definition["overrides"]["machine_end_gcode"]["default_value"]
     lines = start.splitlines()
 
     assert lines[:4] == [
@@ -183,28 +182,57 @@ def test_start_gcode_primes_both_tools_and_restores_initial_latch() -> None:
     ]
     assert "G0 X0 Y0 Z50 F3600" in lines
 
-    # QIDI's reference sequence primes T1/left and then T0/right.
-    left_select = lines.index("T1")
-    left_sweep = lines.index("G1 X{machine_width} E0 F2400")
-    right_select = lines.index("T0")
-    right_latch = lines.index("G0 X{machine_width} Y4 F3600")
-    right_wipe = lines.index("G1 X5 E0 F2400")
-    assert left_select < left_sweep < right_select < right_latch < right_wipe
-    assert lines.count("G92 E-19") == 2
+    single_t0_marker = lines.index(
+        "{if extruders_enabled_count == 1 and initial_extruder_nr == 0}"
+    )
+    single_t1_marker = lines.index(
+        "{elif extruders_enabled_count == 1 and initial_extruder_nr == 1}"
+    )
+    dual_marker = lines.index("{else}", single_t1_marker)
+    first_endif = lines.index("{endif}", dual_marker)
 
-    # Cura tracks the slice's initial tool independently of custom start G-code.
-    # Restore that tool and its physical wall latch after priming both nozzles.
-    restore_select = lines.index("T{initial_extruder_nr}")
-    if_marker = lines.index("{if initial_extruder_nr == 0}")
-    restore_right = lines.index("G0 X{machine_width} Y4 F3600", right_latch + 1)
-    else_marker = lines.index("{else}")
-    restore_left = lines.index("G0 X0 Y6 F3600")
-    endif_marker = lines.index("{endif}")
-    assert right_wipe < restore_select < if_marker < restore_right
-    assert restore_right < else_marker < restore_left < endif_marker
+    single_t0 = lines[single_t0_marker + 1 : single_t1_marker]
+    assert "M109 T0 S{material_print_temperature_layer_0, 0}" in single_t0
+    assert "T0" in single_t0
+    assert "G0 X{machine_width} Y4 Z0.3 F3600" in single_t0
+    assert "G1 X5 E0 F2400" in single_t0
+    assert not any("T1" in line for line in single_t0)
+
+    single_t1 = lines[single_t1_marker + 1 : dual_marker]
+    assert "M109 T1 S{material_print_temperature_layer_0, 1}" in single_t1
+    assert "T1" in single_t1
+    assert "G0 X0 Y6 Z0.3 F3600" in single_t1
+    assert "G1 X{machine_width} E0 F2400" in single_t1
+    assert not any("T0" in line for line in single_t1)
+
+    dual = lines[dual_marker + 1 : first_endif]
+    assert "M104 T0 S{material_print_temperature_layer_0, 0}" in dual
+    assert "M109 T1 S{material_print_temperature_layer_0, 1}" in dual
+    assert "M109 T0 S{material_print_temperature_layer_0, 0}" in dual
+    assert "T1" in dual
+    assert "T0" in dual
+    assert dual.count("G92 E-19") == 2
+
+    restore_select = lines.index("T{initial_extruder_nr}", first_endif)
+    restore_if = lines.index("{if initial_extruder_nr == 0}", restore_select)
+    restore_right = lines.index("G0 X{machine_width} Y4 F3600", restore_if)
+    restore_else = lines.index("{else}", restore_right)
+    restore_left = lines.index("G0 X0 Y6 F3600", restore_else)
+    restore_endif = lines.index("{endif}", restore_left)
+    assert restore_select < restore_if < restore_right < restore_else < restore_left < restore_endif
     assert lines[-1] == "G92 E0"
 
-    assert "M104 T0 S0" in end
-    assert "M104 T1 S0" in end
-    assert "G1 X" not in end
-    assert "G1 Y" not in end
+
+def test_end_gcode_lowers_build_plate_and_parks_carriage() -> None:
+    definition = _load("definitions/qidi_ifast.def.json")
+    end = definition["overrides"]["machine_end_gcode"]["default_value"]
+    lines = end.splitlines()
+
+    assert "M104 T0 S0 ; turn off extruder 1" in lines
+    assert "M104 T1 S0 ; turn off extruder 2" in lines
+    assert "M140 S0 ; turn off bed" in lines
+    assert "G1 E-3 F300 ; retract filament" in lines
+    assert "G90 ; absolute positioning" in lines
+    assert "G0 Z{machine_height} F1200 ; lower build plate" in lines
+    assert "G0 X{machine_width} Y0 F3600 ; park carriage" in lines
+    assert lines[-1] == "M84 ; disable steppers"
