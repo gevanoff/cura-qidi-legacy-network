@@ -30,7 +30,7 @@
         "machine_center_is_zero": { "default_value": false },
         "machine_heated_bed": { "default_value": true },
         "machine_extruder_count": { "default_value": 2 },
-        "machine_gcode_flavor": { "default_value": "Marlin" },
+        "machine_gcode_flavor": { "default_value": "RepRap (Marlin/Sprinter)" },
         "material_diameter": { "default_value": 1.75 },
         "machine_start_gcode": {
             "default_value": "G21 ; millimeters\nG90 ; absolute positioning\nM82 ; absolute extrusion\nG28\nG0 X0 Y0 Z50 F3600\nM190 S{material_bed_temperature_layer_0}\nM104 T0 S{material_print_temperature_layer_0, 0}\nM109 T1 S{material_print_temperature_layer_0, 1}\nM109 T0 S{material_print_temperature_layer_0, 0}\nG0 X0 Y6 Z0.3 F3600\nT1\nG92 E-19\nG1 X{machine_width} E0 F2400\nT0\nG92 E-19\nG0 X{machine_width} Y4 F3600\nG1 X5 E0 F2400\nT{initial_extruder_nr}\n{if initial_extruder_nr == 0}\nG0 X{machine_width} Y4 F3600\n{else}\nG0 X0 Y6 F3600\n{endif}\nG92 E0"
