@@ -58,6 +58,8 @@ X30 Y220
 
 The path intentionally stays away from the nozzle selector. It ends at `X165 Y125`, returns the bed only after explicit confirmation, and asks for another paper-gap comparison.
 
+The default 10-cycle path is about 9.34 m of XY travel. At the default 6000 mm/min feed, nominal motion time alone is about 93 seconds, so the final `M400` wait uses a timeout computed from the commanded path length and feed rate, with extra margin for acceleration and firmware overhead. This long timeout applies only to the MOTION completion barrier; ordinary UDP commands retain the short client timeout.
+
 Defaults:
 
 ```text
@@ -82,7 +84,7 @@ Defaults:
 
 The script never homes the printer and never changes the stored software Z offset. Every stress phase first lowers the bed by the configured clearance distance. If the operator declines a `RETURN` prompt, the test aborts with the bed left lowered.
 
-Normal UDP commands keep the short client timeout. Only `M400` motion-completion barriers receive a longer timeout.
+Normal UDP commands keep the short client timeout. Only `M400` motion-completion barriers receive longer, motion-appropriate timeouts.
 
 ## Interpreting results
 
