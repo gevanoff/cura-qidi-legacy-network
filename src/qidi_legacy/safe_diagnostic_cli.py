@@ -3,18 +3,10 @@ from __future__ import annotations
 from . import diagnostic_cli
 
 
-_original_guided_hot_z_test = diagnostic_cli._guided_hot_z_test
-
-
-def _guided_hot_z_test_with_preflight(client: object, args: object) -> dict[str, object]:
-    blocked = diagnostic_cli.cli._hotend_integrity_preflight()
-    if blocked is not None:
-        return blocked
-    return _original_guided_hot_z_test(client, args)
-
-
 def main() -> int:
-    diagnostic_cli._guided_hot_z_test = _guided_hot_z_test_with_preflight
+    # The shared qidi_legacy.cli z-test dispatch now enforces the MECHREADY
+    # hotend-integrity preflight for every entry point. Do not wrap the guided
+    # test here or the safety prompt would run twice.
     return diagnostic_cli.main()
 
 
