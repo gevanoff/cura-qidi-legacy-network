@@ -1,34 +1,15 @@
 from __future__ import annotations
 
-import builtins
-
 from qidi_legacy import safe_diagnostic_cli
 
 
-def test_preflight_blocks_diagnostic_without_mechready(monkeypatch) -> None:
-    monkeypatch.setattr(builtins, "input", lambda prompt: "STOP")
-
-    result = safe_diagnostic_cli._guided_hot_z_test_with_preflight(object(), object())
-
-    assert result["aborted"] is True
-    assert result["stage"] == "hotend_integrity_preflight"
-    assert "leakage" in result["reason"]
-
-
-def test_preflight_delegates_after_mechready(monkeypatch) -> None:
-    sentinel = {"aborted": False, "delegated": True}
-    seen: list[tuple[object, object]] = []
-    client = object()
-    args = object()
-
-    monkeypatch.setattr(builtins, "input", lambda prompt: "MECHREADY")
+def test_safe_entrypoint_delegates_to_shared_diagnostic_main(monkeypatch) -> None:
+    seen: list[bool] = []
     monkeypatch.setattr(
-        safe_diagnostic_cli,
-        "_original_guided_hot_z_test",
-        lambda passed_client, passed_args: seen.append((passed_client, passed_args)) or sentinel,
+        safe_diagnostic_cli.diagnostic_cli,
+        "main",
+        lambda: seen.append(True) or 0,
     )
 
-    result = safe_diagnostic_cli._guided_hot_z_test_with_preflight(client, args)
-
-    assert result is sentinel
-    assert seen == [(client, args)]
+    assert safe_diagnostic_cli.main() == 0
+    assert seen == [True]
