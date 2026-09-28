@@ -40,7 +40,7 @@ def test_command_joins_shell_tokens_and_sends_one_raw_command(monkeypatch) -> No
     assert result == {"command": "G0 Z5 F300", "response": "ok"}
 
 
-def test_z_test_requires_ready_before_sending_motion(monkeypatch) -> None:
+def test_z_test_requires_mechready_before_sending_motion(monkeypatch) -> None:
     fake = FakeClient()
     monkeypatch.setattr(cli, "_client", lambda args: fake)
     monkeypatch.setattr(builtins, "input", lambda prompt: "NO")
@@ -50,7 +50,8 @@ def test_z_test_requires_ready_before_sending_motion(monkeypatch) -> None:
 
     result = cli.run(args)
 
-    assert result == {"aborted": True, "stage": "before_start"}
+    assert result["aborted"] is True
+    assert result["stage"] == "hotend_integrity_preflight"
     assert fake.commands == []
 
 
@@ -67,6 +68,7 @@ def test_z_test_moves_away_and_returns_only_after_confirmation(monkeypatch) -> N
     monkeypatch.setattr(cli, "_client", lambda args: fake)
     answers = iter(
         [
+            "MECHREADY",
             "READY",
             "light",
             "moved normally",
@@ -107,7 +109,7 @@ def test_z_test_moves_away_and_returns_only_after_confirmation(monkeypatch) -> N
 def test_z_test_abort_after_away_move_leaves_bed_lowered(monkeypatch) -> None:
     fake = FakeClient()
     monkeypatch.setattr(cli, "_client", lambda args: fake)
-    answers = iter(["READY", "light", "moved normally", "STOP"])
+    answers = iter(["MECHREADY", "READY", "light", "moved normally", "STOP"])
     monkeypatch.setattr(builtins, "input", lambda prompt: next(answers))
     args = cli.build_parser().parse_args(
         ["z-test", "10.10.22.171", "--cycles", "1", "--distance", "2"]
@@ -202,6 +204,7 @@ def test_z_test_selector_phase_is_automatic(monkeypatch) -> None:
     monkeypatch.setattr(cli, "_client", lambda args: fake)
     answers = iter(
         [
+            "MECHREADY",
             "READY",
             "light",
             "normal",
